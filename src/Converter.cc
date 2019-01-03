@@ -18,10 +18,20 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/**
+ * @file Converter.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief ORB-SLAM2中一些常用的转换的实现
+ * @version 0.1
+ * @date 2019-01-03
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
 
 #include "Converter.h"
 
-//这个文件主要进行系统中的一些转换操作
 
 namespace ORB_SLAM2
 {
@@ -62,7 +72,7 @@ g2o::SE3Quat Converter::toSE3Quat(const cv::Mat &cvT)
 //李代数se3转换为变换矩阵：g2o::SE3Quat->cv::Mat
 cv::Mat Converter::toCvMat(const g2o::SE3Quat &SE3)
 {
-	//这个转换比较方便，将李代数直接转换成为Eigen下的矩阵格式
+	///在实际操作上，首先转化成为Eigen中的矩阵形式，然后转换成为cv::Mat的矩阵形式。
     Eigen::Matrix<double,4,4> eigMat = SE3.to_homogeneous_matrix();
 	//然后再由Eigen::Matrix->cv::Mat
     return toCvMat(eigMat);
@@ -71,14 +81,14 @@ cv::Mat Converter::toCvMat(const g2o::SE3Quat &SE3)
 //将仿射矩阵由g2o::Sim3->cv::Mat
 cv::Mat Converter::toCvMat(const g2o::Sim3 &Sim3)
 {
-	//首先将仿射矩阵的旋转部分转换成为Eigen下的矩阵格式
+	///首先将仿射矩阵的旋转部分转换成为Eigen下的矩阵格式
     Eigen::Matrix3d eigR = Sim3.rotation().toRotationMatrix();
-	//对于仿射矩阵的平移部分也是要转换成为Eigen下的矩阵格式
+	///对于仿射矩阵的平移部分也是要转换成为Eigen下的矩阵格式
     Eigen::Vector3d eigt = Sim3.translation();
-	//获取仿射矩阵的缩放系数
+	///获取仿射矩阵的缩放系数
     double s = Sim3.scale();
-	//然后构造cv::Mat格式下的仿射矩阵
-	//TODO 看样子这里的sim貌似和se3有某种关系
+	///然后构造cv::Mat格式下的仿射矩阵
+	///@todo 感觉这里的sim3就是在se3的基础上多了一个缩放系数，但是实际上真的是这样吗？
     return toCvSE3(s*eigR,eigt);
 }
 
@@ -191,7 +201,8 @@ std::vector<float> Converter::toQuaternion(const cv::Mat &M)
 	Eigen::Quaterniond q(eigMat);
 	//最后声明一个这样的向量
     std::vector<float> v(4);
-	//将四元数的四个元素分别保存到这个vector中，注意这里的顺序
+	//将四元数的四个元素分别保存到这个vector中
+    ///@note 注意,使用std::vector存储的四元数的顺序是x y z w
     v[0] = q.x();
     v[1] = q.y();
     v[2] = q.z();

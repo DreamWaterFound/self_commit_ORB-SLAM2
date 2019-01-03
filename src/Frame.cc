@@ -18,6 +18,17 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+/**
+ * @file Frame.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief 帧的实现文件
+ * @version 0.1
+ * @date 2019-01-03
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
 #include "Frame.h"
 #include "Converter.h"
 #include "ORBmatcher.h"
@@ -26,10 +37,11 @@
 namespace ORB_SLAM2
 {
 
-//下一个生成的帧的ID，这里是初始化类的静态成员变量
+
+//下一个生成的帧的ID,这里是初始化类的静态成员变量
 long unsigned int Frame::nNextId=0;
-//由于第一帧以及SLAM系统进行重新校正后的第一帧会有一些特殊的初始化处理操作，所以这里设置了这个变量，如果这个标志被置位，说明
-//再下一帧的帧构造函数中要进行这个“特殊的初始化操作”，如果没有被置位则不用。
+
+//是否要进行初始化操作的标志
 //这里给这个标志置位的操作是在最初系统开始加载到内存的时候进行的，下一帧就是整个系统的第一帧，所以这个标志要置位
 bool Frame::mbInitialComputations=true;
 
@@ -44,9 +56,7 @@ float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 Frame::Frame()
 {}
 
-/**
- * @brief Copy constructor
- *
+/*
  * 复制构造函数, mLastFrame = Frame(mCurrentFrame)
  * 如果不是自定以拷贝函数的话，系统自动生成的拷贝函数对于所有涉及分配内存的操作都将是浅拷贝
  * 另外注意，调用这个函数的时候，这个函数中隐藏的this指针其实是指向目标帧的
@@ -119,9 +129,14 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
      mThDepth(thDepth),
      mpReferenceKF(static_cast<KeyFrame*>(NULL))//NOTICE 暂时先不设置参考关键帧
 {
+    /** 主要步骤: */
+
     // Frame ID
-	//采用这种方式分配这个帧的ID
+	/** 1. 分配这个帧的id */
     mnId=nNextId++;
+
+    
+    /** 2. 处理图像金字塔的相关参数 */
 
     // Scale Level Info
 	//目测下面的内容是获取图像金字塔的每层的缩放信息，都是左目图像的
@@ -140,6 +155,8 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
 	//获取sigma^2的倒数
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
+    /** 3. 对左目右目图像提取ORB特征 */
+
     // ORB extraction
     // 同时对左右目提特征，还同时开了两个线程
     thread threadLeft(&Frame::ExtractORB,		//该线程的主函数
@@ -155,24 +172,37 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
 	//mvKeys中保存的是左图像中的特征点，这里是获取左侧图像中特征点的个数
     N = mvKeys.size();
 
+    /** 4. 判断是否成功提取到特征点,如果没有就返回 */
+
 	//如果左图像中没有成功提取到特征点那么就返回，也意味这这一帧的图像无法使用
     if(mvKeys.empty())
         return;
 	
+    /** 5. 特征点去畸变.\n实际上由于双目输入的图像已经预先经过矫正,所以实际上并没有对特征点进行任何处理操作 */
+
     // Undistort特征点，这里没有对双目进行校正，因为要求输入的图像已经进行极线校正
     UndistortKeyPoints();
 
-    // 计算双目间的匹配, 匹配成功的特征点会计算其深度
-    // 深度存放在 mvuRight 和 mvDepth 中
+    /** 6. 计算双目间特征点的匹配\n只有匹配成功的特征点会计算其深度,深度存放在 mvDepth 中 */
 	//应当说，mvuRight中存储的应该是左图像中的点所匹配的在右图像中的点的横坐标（纵坐标相同）；
 	//mvDepth才是估计的深度
     ComputeStereoMatches();
 
+    /** 7. 地图点集初始化 \n生成等数量的地图点句柄,由一个成员变量vector mvpMapPoints处理 \n然后默认所有的特征点均为inlier */
+
     // 对应的mappoints
 	//这里其实是生成了一个空的地图点句柄vector，这部分Frame.cpp中没有进行相关操作
+    //N个点,每个点的句柄的初始值为<MapPoint*>(NULL)
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));   
 	//对于每个地图点，让其为外点的标记清空，先认为都是inlier
     mvbOutlier = vector<bool>(N,false);
+
+    /** 8. 如果当前帧是第一帧,或者刚刚进行了重定位等矫正,那么需要进行特殊的初始化 \n其实就是对一些类的静态成员变量进行赋值\n内容主要包括下面几种: \n
+     *      - 计算未矫正图像的边界 \n
+     *      - 计算一个像素列相当于几个（<1）图像网格列 \n
+     *      - 对相机内参进行赋值
+     *      - 完成上述操作之后对标志进行复位
+     */
 
 
     // This is done only for the first Frame (or after a change in the calibration)
@@ -198,11 +228,17 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
         mbInitialComputations=false;
     }//查看“特殊初始化”标记，如果有的话就要进行特殊初始化
 
+    /** 9. 计算相机基线长度 */
+
     //双目相机的基线长度是在这里被计算的, TODO  为什么要在这里进行计算啊？这个不是一个常量吗对于一个特定的双目相机？
     mb = mbf/fx;
 
-	//将刚才提取出来的特征点分配到网格中
+    /** 10. 将提取出来的特征点分配到图像网格中 */
     AssignFeaturesToGrid();
+    
+
+
+    
 }
 
 // RGBD初始化
@@ -217,16 +253,19 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
 			 const float &thDepth)		//区分远近点的深度阈值
     :mpORBvocabulary(voc),
      mpORBextractorLeft(extractor),
-     mpORBextractorRight(static_cast<ORBextractor*>(NULL)),	//TODO 这里实际上没有用到右图像吗？实际上这里没有使用ORB特征点提取器
+     mpORBextractorRight(static_cast<ORBextractor*>(NULL)),	//实际上这里没有使用ORB特征点提取器
      mTimeStamp(timeStamp), 
      mK(K.clone()),
      mDistCoef(distCoef.clone()), 
      mbf(bf), 
      mThDepth(thDepth)
 {
+    /** 主要步骤: */
     // Frame ID
-	//分配帧ID
+	/** 1. 分配当前帧ID */
     mnId=nNextId++;
+
+    //====HERE====
 
     // Scale Level Info
 	//图像层的尺度缩放信息，和双目相机的帧的初始化相同
@@ -727,9 +766,8 @@ bool Frame::PosInGrid(			//返回值：true-说明找到了指定特征点所在
 }
 
 /**
- * @brief Bag of Words Representation	词袋表示法
- *
- * 计算词包mBowVec和mFeatVec，其中mFeatVec记录了属于第i个node（在第4层）的ni个描述子
+ * @brief Bag of Words Representation	词袋表示法 \n
+ * 计算词包 mBowVec 和 mFeatVec ，其中 mFeatVec 记录了属于第i个node（在第4层）的ni个描述子
  * @see CreateInitialMapMonocular() TrackReferenceKeyFrame() Relocalization()
  */
 void Frame::ComputeBoW()
