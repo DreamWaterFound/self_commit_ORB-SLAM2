@@ -918,7 +918,7 @@ void Frame::UndistortKeyPoints()
     {
 		//然后将这个特征点的横纵坐标分别保存
         mat.at<float>(i,0)=mvKeys[i].pt.x;
-        mat.at<float>(i,1)=mvKeys[i].pt.y;
+        `mat.at<float>(i,1)=mvKeys[i].pt.y;
     }//遍历每个特征点，并将它们的坐标保存到矩阵中
 
     // Undistort points
