@@ -56,10 +56,7 @@ float Frame::mfGridElementWidthInv, Frame::mfGridElementHeightInv;
 Frame::Frame()
 {}
 
-/*
- * 复制构造函数, mLastFrame = Frame(mCurrentFrame)
- * 如果不是自定以拷贝函数的话，系统自动生成的拷贝函数对于所有涉及分配内存的操作都将是浅拷贝
- * 另外注意，调用这个函数的时候，这个函数中隐藏的this指针其实是指向目标帧的
+/** @details 另外注意，调用这个函数的时候，这个函数中隐藏的this指针其实是指向目标帧的
  */
 Frame::Frame(const Frame &frame)
     :mpORBvocabulary(frame.mpORBvocabulary), 
@@ -155,7 +152,7 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
 	//获取sigma^2的倒数
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
-    /** 3. 对左目右目图像提取ORB特征 */
+    /** 3. 对左目右目图像提取ORB特征.此过程中还开辟了两个线程,调用 Frame::ExtractORB() 函数来执行. */
 
     // ORB extraction
     // 同时对左右目提特征，还同时开了两个线程
@@ -178,12 +175,12 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
     if(mvKeys.empty())
         return;
 	
-    /** 5. 特征点去畸变.\n实际上由于双目输入的图像已经预先经过矫正,所以实际上并没有对特征点进行任何处理操作 */
+    /** 5. 特征点去畸变,使用 Frame::UndistortKeyPoints() 函数.\n实际上由于双目输入的图像已经预先经过矫正,所以实际上并没有对特征点进行任何处理操作 */
 
     // Undistort特征点，这里没有对双目进行校正，因为要求输入的图像已经进行极线校正
     UndistortKeyPoints();
 
-    /** 6. 计算双目间特征点的匹配\n只有匹配成功的特征点会计算其深度,深度存放在 mvDepth 中 */
+    /** 6. 计算双目间特征点的匹配\n只有匹配成功的特征点会计算其深度,深度存放在 mvDepth 中. 使用 Frame::ComputeStereoMatches()函数. */
 	//应当说，mvuRight中存储的应该是左图像中的点所匹配的在右图像中的点的横坐标（纵坐标相同）；
 	//mvDepth才是估计的深度
     ComputeStereoMatches();
@@ -198,7 +195,7 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
     mvbOutlier = vector<bool>(N,false);
 
     /** 8. 如果当前帧是第一帧,或者刚刚进行了重定位等矫正,那么需要进行特殊的初始化 \n其实就是对一些类的静态成员变量进行赋值\n内容主要包括下面几种: \n
-     *      - 计算未矫正图像的边界 \n
+     *      - 计算未矫正图像的边界.  Frame::ComputeImageBounds() \n
      *      - 计算一个像素列相当于几个（<1）图像网格列 \n
      *      - 对相机内参进行赋值
      *      - 完成上述操作之后对标志进行复位
@@ -233,12 +230,8 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
     //双目相机的基线长度是在这里被计算的, TODO  为什么要在这里进行计算啊？这个不是一个常量吗对于一个特定的双目相机？
     mb = mbf/fx;
 
-    /** 10. 将提取出来的特征点分配到图像网格中 */
-    AssignFeaturesToGrid();
-    
-
-
-    
+    /** 10. 将提取出来的特征点分配到图像网格中 \n Frame::AssignFeaturesToGrid() */
+    AssignFeaturesToGrid();    
 }
 
 // RGBD初始化
@@ -265,8 +258,7 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
 	/** 1. 分配当前帧ID */
     mnId=nNextId++;
 
-    //====HERE====
-
+    /** 2. 计算图像金字塔的相关参数 */
     // Scale Level Info
 	//图像层的尺度缩放信息，和双目相机的帧的初始化相同
 	//获取图像金字塔的层数
@@ -284,6 +276,8 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
 	//计算上面获取的sigma^2的倒数
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
+    /** 3. 提取彩色图像(其实现在已经灰度化成为灰度图像了)的特征点 \n Frame::ExtractORB() */
+
     // ORB extraction
 	//对左侧图像提取ORB特征点
     ExtractORB(0,imGray);
@@ -291,21 +285,35 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
 	//获取特征点的个数
     N = mvKeys.size();
 
+    /** 4. 判断是否正确提取出特征点,如果没有则放弃 */
+
 	//如果这一帧没有能够提取出特征点，那么就直接返回了
     if(mvKeys.empty())
         return;
 
+    /** 5. 对提取到的特征点进行去畸变操作,根据特征点的深度反推假想中的右侧特征点 \n
+     *  去畸变: Frame::UndistortKeyPoints()
+     *  恢复假想右图特征点: Frame::ComputeStereoFromRGBD()
+    */
 	//运行到这里说明以及获得到了特征点，这里对这些特征点进行去畸变操作
     UndistortKeyPoints();
 
 	//获取灰度化后的彩色图像的深度，并且根据这个深度计算其假象的右图中匹配的特征点的视差
     ComputeStereoFromRGBD(imDepth);
 
+    /** 6. 初始化本帧地图点 */
+
 	//初始化存储地图点句柄的vector
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
 	//然后默认所有的地图点都是inlier
     mvbOutlier = vector<bool>(N,false);
 
+    /** 7. 判断是否需要进行进行特殊初始化,这个过程一般是在第一帧或者是重定位之后进行.主要操作有:\n
+     *      - 计算未校正图像的边界 Frame::ComputeImageBounds()
+     *      - 计算一个像素列相当于几个（<1）图像网格列
+     *      - 给相机的内参数赋值
+     *      - 标志复位
+     */ 
     // This is done only for the first Frame (or after a change in the calibration)
 	//判断是否是需要首次进行的“特殊初始化”
     if(mbInitialComputations)
@@ -330,9 +338,12 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
     }
 
     //TODO 额。为毛对RGBD相机也需要计算这个？
+    //感觉应该是计算所谓的假想的"基线长度"
+
+    /** 8. 计算假想的基线长度 baseline= mbf/fx */
     mb = mbf/fx;
 
-	//将特征点分配到图像网格中
+	/** 9.将特征点分配到图像网格中 \n Frame::AssignFeaturesToGrid() */
     AssignFeaturesToGrid();
 }
 
@@ -354,10 +365,13 @@ Frame::Frame(const cv::Mat &imGray, 			//灰度化后的彩色图像
      mbf(bf), 
      mThDepth(thDepth)
 {
+    /** 主要步骤: */
+
     // Frame ID
-	//获取帧的ID
+	/** 1. 获取帧的ID */
     mnId=nNextId++;
 
+    /** 2. 计算图像金字塔的参数 */
     // Scale Level Info
 	//和前面相同，这里也是获得图像金字塔的一些属性
 	//获取图像金字塔的层数
@@ -376,24 +390,29 @@ Frame::Frame(const cv::Mat &imGray, 			//灰度化后的彩色图像
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
     // ORB extraction
-	//对这个单目图像进行提取特征点操作
+	/** 3. 对这个单目图像进行提取特征点操作 \n Frame::ExtractORB() */
     ExtractORB(0,imGray);
 
 	//求出特征点的个数
     N = mvKeys.size();
 
+    /** 4. 查看是否成功提取出特征点,如果没有提取到有效的特征点那么就放弃本帧 */
+
 	//如果没有能够成功提取出特征点，那么就直接返回了
     if(mvKeys.empty())
         return;
 
+    /** 5. 对提取到的特征点进行矫正 \n Frame::UndistortKeyPoints() */
     // 调用OpenCV的矫正函数矫正orb提取的特征点
     UndistortKeyPoints();
 
     // Set no stereo information
-	//由于单目相机无法直接获得立体信息，所以这里要给这个右图像对应点的横坐标和深度赋值-表示没有相关信息
+	/** 6. 由于单目相机无法直接获得立体信息，所以这里要给这个右图像对应点的横坐标和深度赋值-表示没有相关信息 */
     mvuRight = vector<float>(N,-1);
     mvDepth = vector<float>(N,-1);
 
+
+    /** 7. 初始化本帧的地图点 */
 	//初始化存储地图点句柄的vector
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));
 	//开始认为默认的地图点均为inlier
@@ -401,6 +420,12 @@ Frame::Frame(const cv::Mat &imGray, 			//灰度化后的彩色图像
 
     // This is done only for the first Frame (or after a change in the calibration)
 	//和前面一样的，看看是否需要进行特殊的初始化
+     /** 8. 判断是否需要进行进行特殊初始化,这个过程一般是在第一帧或者是重定位之后进行.主要操作有:\n
+     *      - 计算未校正图像的边界 Frame::ComputeImageBounds() 
+     *      - 计算一个像素列相当于几个（<1）图像网格列
+     *      - 给相机的内参数赋值
+     *      - 标志复位
+     */ 
     if(mbInitialComputations)
     {
 		//计算未校正图像的边界
@@ -424,18 +449,22 @@ Frame::Frame(const cv::Mat &imGray, 			//灰度化后的彩色图像
         mbInitialComputations=false;
     }//是否需要进行特殊的初始化
 
-    //计算 basline
+    /** 9. 计算 basline */
+    //目测也是假想的
     mb = mbf/fx;
 
-	//将特征点分配到图像网格中
+	/** 10. 将特征点分配到图像网格中 \n Frame::AssignFeaturesToGrid() */
     AssignFeaturesToGrid();
 }
 
 //将提取的ORB特征点分配到图像网格中
 void Frame::AssignFeaturesToGrid()
 {
+    /** 步骤: */
+    /** 1. 提前给 Frame::mGrid 中存储特征点的vector预分配空间 */
 	//这里是提前给那些网格中的vector预分配的空间
 	//TODO 可是为什么是平均值的一半呢？仅凭Frame.cpp部分还不足以知道原因
+    //猜想也有可能是作者预想的,这样的空间分配上最小,以后运行的时候因为空间不够进行额外分配的时候时间占用也最少
     int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS);
 	//开始对mGrid这个二维数组中的每一个vector元素遍历并预分配空间
     for(unsigned int i=0; i<FRAME_GRID_COLS;i++)
@@ -444,6 +473,7 @@ void Frame::AssignFeaturesToGrid()
 
     // 在mGrid中记录了各特征点，严格来说应该是各特征点在vector mvKeysUn中的索引
 	//对于每个特征点
+    /** 2. 开始遍历每个特征点 */
     for(int i=0;i<N;i++)
     {
 		//从类的成员变量中获取已经去畸变后的特征点
@@ -452,69 +482,100 @@ void Frame::AssignFeaturesToGrid()
 		//用于存储某个特征点所在网格的网格坐标
         int nGridPosX, nGridPosY;
 		//计算某个特征点所在网格的网格坐标，如果失败的话返回false
+        /** 3. 对遍历到的特征点使用 Frame::PosInGrid() 函数确定其所在的网格 */
         if(PosInGrid(kp,nGridPosX,nGridPosY))
 			//将这个特征点的索引追加到对应网格的vector中
+            /** 4. 如果的确在某个网格中,就将当前遍历到的特征点追加到对应的网格中的vector中 */
             mGrid[nGridPosX][nGridPosY].push_back(i);
-    }//遍历每个特征点
+    }/** 5. 特征点遍历结束 */
 }
 
 //提取图像的ORB特征
 void Frame::ExtractORB(int flag, 			//0-左图  1-右图
 					   const cv::Mat &im)	//等待提取特征点的图像
 {
-	//判断是左图还是右图
+    /** 步骤: */
+	/** 1. 判断是左图还是右图 */
     if(flag==0)
-		//左图的话就套使用左图指定的特征点提取器，并将提取结果保存到对应的变量中
-		//其实这里的提取器句柄就是一个函数指针
+		/** 2. 左图的话就套使用左图指定的特征点提取器，并将提取结果保存到对应的变量中 \n
+		 * 其实这里的提取器句柄就是一个函数指针...或者说,是运算符更加合适 \n
+         * ORBextractor::operator() 
+         */
         (*mpORBextractorLeft)(im,				//待提取特征点的图像
 							  cv::Mat(),		//TODO ？？？？ 这个参数的含义要参考这部分的源文件才能知道
 							  mvKeys,			//输出变量，用于保存提取后的特征点
 							  mDescriptors);	//输出变量，用于保存特征点的描述子
     else
-		//右图的话就需要使用右图指定的特征点提取器，并将提取结果保存到对应的变量中
+		/** 3. 右图的话就需要使用右图指定的特征点提取器，并将提取结果保存到对应的变量中 \n ORBextractor::operator() */
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
 	
 	//所以，上面区分左右图的原因就是因为保存结果的变量不同。不过新的疑问是：
 	// TODO 左图的特征点提取器和右图的特征点提取器有什么不同之处吗？
 }
 
-/**
- * @brief Set the camera pose.
- * 
- * 设置相机姿态，随后会调用 UpdatePoseMatrices() 来改变mRcw,mRwc等变量的值
- * @param Tcw Transformation from world to camera
- */
+// 设置相机姿态，随后会调用 UpdatePoseMatrices() 来改变mRcw,mRwc等变量的值
 void Frame::SetPose(cv::Mat Tcw)
 {
-	//更改类的成员变量,深拷贝
+	/** 1. 更改类的成员变量,深拷贝 */
     mTcw = Tcw.clone();
-	//更新、计算类的成员变量中所有的位姿矩阵
+	/** 2. 调用 Frame::UpdatePoseMatrices() 来更新、计算类的成员变量中所有的位姿矩阵 */
     UpdatePoseMatrices();
 }
 
-/**
- * @brief Computes rotation, translation and camera center matrices from the camera pose.
- *
- * 根据Tcw计算mRcw、mtcw和mRwc、mOw
- */
+//根据Tcw计算mRcw、mtcw和mRwc、mOw
 void Frame::UpdatePoseMatrices()
 {
+    /** 主要计算四个量. 定义程序中的符号和公式表达: \n
+     * Frame::mTcw = \f$ \mathbf{T}_{cw} \f$ \n
+     * Frame::mRcw = \f$ \mathbf{R}_{cw} \f$ \n
+     * Frame::mRwc = \f$ \mathbf{R}_{wc} \f$ \n
+     * Frame::mtcw = \f$ \mathbf{t}_{cw} \f$ 即相机坐标系下相机坐标系到世界坐标系间的向量, 向量方向由相机坐标系指向世界坐标系\n
+     * Frame::mOw  = \f$ \mathbf{O}_{w} \f$  即世界坐标系下世界坐标系到相机坐标系间的向量, 向量方向由世界坐标系指向相机坐标系\n  
+     * 步骤: */
+    /** 1. 计算mRcw,即相机从世界坐标系到当前帧的相机位置的旋转. \n
+     * 这里是直接从 Frame::mTcw 中提取出旋转矩阵. \n*/
     // [x_camera 1] = [R|t]*[x_world 1]，坐标为齐次形式
     // x_camera = R*x_world + t
 	//注意，rowRange这个只取到范围的左边界，而不取右边界
 	//所以下面这个其实就是从变换矩阵中提取出旋转矩阵
     mRcw = mTcw.rowRange(0,3).colRange(0,3);
-	//相反的旋转就是取个逆，对于正交阵也就是取个转置
+    /** 2. 相反的旋转就是取个逆，对于正交阵也就是取个转置: \n
+     * \f$ \mathbf{R}_{wc}=\mathbf{R}_{cw}^{-1}=\mathbf{R}_{cw}^{\text{T}} \f$ \n
+     * 得到 mRwc .
+     */
     mRwc = mRcw.t();
-	//同样地，从变换矩阵中提取出平移向量
+	/** 3. 同样地，从变换矩阵 \f$ \mathbf{T}_{cw} \f$中提取出平移向量 \f$ \mathbf{t}_{cw} \f$ \n 
+     * 进而得到 mtcw. 
+     */
     mtcw = mTcw.rowRange(0,3).col(3);
     // mtcw, 即相机坐标系下相机坐标系到世界坐标系间的向量, 向量方向由相机坐标系指向世界坐标系
     // mOw, 即世界坐标系下世界坐标系到相机坐标系间的向量, 向量方向由世界坐标系指向相机坐标系
+
+    //可能又错误,不要看接下来的这一段!!!
 	//其实上面这两个平移向量应当描述的是两个坐标系原点之间的相互位置，mOw也就是相机的中心位置吧（在世界坐标系下）
 	//上面的两个量互为相反的关系,但是由于mtcw这个向量是在相机坐标系下来说的，所以要反旋转变换到世界坐标系下，才能够表示mOw
+
+    /** 4. 最终求得相机光心在世界坐标系下的坐标: \n
+     * \f$ \mathbf{O}_w=-\mathbf{R}_{cw}^{\text{T}}\mathbf{t}_{cw} \f$ \n
+     * 使用这个公式的原因可以按照下面的思路思考. 假设我们有了一个点 \f$ \mathbf{P} \f$ ,有它在世界坐标系下的坐标 \f$ \mathbf{P}_w \f$ 
+     * 和在当前帧相机坐标系下的坐标 \f$ \mathbf{P}_c \f$ ,那么比较容易有: \n
+     * \f$ \mathbf{P}_c=\mathbf{R}_{cw}\mathbf{P}_w+\mathbf{t}_{cw}  \f$ \n
+     * 移项: \n
+     * \f$ \mathbf{P}_c-\mathbf{t}_{cw}=\mathbf{R}_{cw}\mathbf{P}_w \f$ \n
+     * 移项,考虑到旋转矩阵为正交矩阵,其逆等于其转置: \n
+     * \f$ \mathbf{R}_{cw}^{-1}\left(\mathbf{P}_c-\mathbf{t}_{cw}\right)=
+     * \mathbf{R}_{cw}^{\text{T}}\left(\mathbf{P}_c-\mathbf{t}_{cw}\right) = 
+     * \mathbf{P}_w \f$ \n
+     * 此时,如果点\f$ \mathbf{P} \f$就是表示相机光心的话,那么这里的\f$ \mathbf{P}_w \f$也就是相当于 \f$ \mathbf{O}_w \f$ 了,
+     * 并且形象地可以知道 \f$ \mathbf{P}_c=0 \f$. 所以上面的式子就变成了: \n
+     * \f$ \mathbf{O}_w=\mathbf{P}_w=\left(-\mathbf{t}_{cw}\right) \f$ \n
+     * 于是就有了程序中的计算的公式. \n
+     * 也许你会想说为什么不是 \f$ \mathbf{O}_w=-\mathbf{t}_{cw} \f$,是因为如果这样做的话没有考虑到坐标系之间的旋转.
+     */ 
 	
     mOw = -mRcw.t()*mtcw;
-	/** 下面都是之前的推导
+
+	/* 下面都是之前的推导,可能有错误,不要看!!!!!
 	其实上面的算式可以写成下面的形式：
 	mOw=(Rcw')*(-tcw)*[0,0,0]'  (MATLAB写法)（但是这里的计算步骤貌似是不对的）
 	这里的下标有些意思，如果倒着读，就是“坐标系下点的坐标变化”，如果正着读，就是“坐标系本身的变化”，正好两者互逆
@@ -535,35 +596,33 @@ void Frame::UpdatePoseMatrices()
 	Pc=Rcw*Pw+tcw
 	Pc-tcw=Rcw*Pw
 	Rcw'(Pc-tcw)=Pw		然后前面是对点在不同坐标系下的坐标变换，当计算坐标系本身的变化的时候反过来，
-	将Pc认为是世界坐标系原点坐标，Pw认为是相机的光心坐标
+	(这一行的理解不正确)将Pc认为是世界坐标系原点坐标，Pw认为是相机的光心坐标
+    应该这样说,当P点就是相机光心的时候,Pw其实就是这里要求的mOw,Pc明显=0
 	Rcw'(o-tcw)=c
 	c=Rcw'*(-tcw)			就有了那个式子
 	**/
 }
 
-/**
- * @brief 判断一个点是否在视野内
- *
- * 计算了重投影坐标，观测方向夹角，预测在当前帧的尺度
- * @param  pMP             MapPoint
- * @param  viewingCosLimit 视角和平均视角的方向阈值	
- * 							猜测是这样的，如果一个点所在的视角偏离平均视角较大（程序中给的是60°），那么认为这个点不可靠
- * @return                 true if is in view
- * @see SearchLocalPoints()
- */
+// 判断路标点是否在视野中
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
-	//mbTrackInView是决定一个地图点是否进行重投影的标志，这个标志的确定要经过多个函数的确定，isInFrustum()只是其中的一个
-	//验证关卡。这里默认设置为否。
+    /** 步骤: \n <ul>*/
+    /**  <li> 1.默认设置标志 MapPoint::mbTrackInView 为否,即设置该地图点不进行重投影. </li>\n
+     * mbTrackInView是决定一个地图点是否进行重投影的标志，这个标志的确定要经过多个函数的确定，isInFrustum()只是其中的一个 
+     * 验证关卡。这里默认设置为否. \n
+     */
     pMP->mbTrackInView = false;
 
     // 3D in absolute coordinates
-	//获得这个地图点的世界坐标
+    /** <li> 2.获得这个地图点的世界坐标, 使用 MapPoint::GetWorldPos() 来获得。</li>\n*/
     cv::Mat P = pMP->GetWorldPos(); 
 
     // 3D in camera coordinates
-    // 3D点P在相机坐标系下的坐标
-	//根据估计出的相机位姿，计算该地图点在相机坐标系下的坐标
+    /** <li> 3.然后根据 Frame::mRcw 和 Frame::mtcw 计算这个点\f$\mathbf{P}\f$在当前相机坐标系下的坐标: </li>\n
+     * \f$ \mathbf{R}_{cw}\mathbf{P}+\mathbf{t}_{cw} \f$ \n
+     * 并提取出三个坐标的坐标值.
+     */ 
+    
     const cv::Mat Pc = mRcw*P+mtcw; // 这里的Rt是经过初步的优化后的
     //然后提取出三个坐标的坐标值
     const float &PcX = Pc.at<float>(0);
@@ -571,12 +630,19 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const float &PcZ = Pc.at<float>(2);
 
     // Check positive depth
-	//检查这个地图点在当前帧的相机坐标系下，是否有正的深度
+    /** <li> 4. <b>关卡一</b>：检查这个地图点在当前帧的相机坐标系下，是否有正的深度.如果是负的，就说明它在当前帧下不在相机视野中，也无法在当前帧下进行重投影. </li>*/
     if(PcZ<0.0f)
-		//如果是负的，就说明它在当前帧下不在相机视野中，也无法在当前帧下进行重投影
         return false;
 
     // Project in image and check it is not outside
+    /** <li> 5. <b>关卡二</b>：将MapPoint投影到当前帧, 并判断是否在图像内（即是否在图像边界中）。</li>\n
+     * 投影方程： \n
+     * \f$ \begin{cases}
+     * z^{-1} &= \frac{1}{\mathbf{P}_c.Z} \\
+     * u &= z^{-1} f_x \mathbf{P}_c.X + c_x \\
+     * v &= z^{-1} f_y \mathbf{P}_c.Y + c_y 
+     * \end{cases} \f$
+     */ 
     // V-D 1) 将MapPoint投影到当前帧, 并判断是否在图像内
     const float invz = 1.0f/PcZ;			//1/Z，其实这个Z在当前的相机坐标系下的话，就是这个点到相机光心的距离，也就是深度
     const float u=fx*PcX*invz+cx;			//计算投影在当前帧图像上的像素横坐标
@@ -590,11 +656,21 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 
     // Check distance is in the scale invariance region of the MapPoint
     // V-D 3) 计算MapPoint到相机中心的距离, 并判断是否在尺度变化的距离内
-	//这里所说的尺度变化是指地图点到相机中心距离的一段范围，如果计算出的地图点到相机中心距离不在这个范围的话就认为这个点在
-	//当前帧相机位姿下不能够得到正确、有效、可靠的观测，就要跳过
+    /** <li> 6. <b>关卡三</b>：计算MapPoint到相机中心的距离, 并判断是否在尺度变化的距离内 </li>  \n
+     * 这里所说的尺度变化是指地图点到相机中心距离的一段范围，如果计算出的地图点到相机中心距离不在这个范围的话就认为这个点在 
+     * 当前帧相机位姿下不能够得到正确、有效、可靠的观测，就要跳过. \n
+     * 为了完成这个任务有两个子任务：\n <ul>
+     */ 
+     
+     /** <li> 6.1 得到认为的可靠距离范围。</li> \n
+     *  这个距离的上下限分别通过 MapPoint::GetMaxDistanceInvariance() 和 MapPoint::GetMinDistanceInvariance() 来得到。 */
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
-    // 世界坐标系下，相机到3D点P的向量, 向量方向由相机指向3D点P
+
+    /** <li> 6.2 得到当前3D地图点距离当前帧相机光心的距离。</li> \n
+     * 具体实现上是通过构造3D点P到相机光心的向量 \f$\mathbf{P}_0 \f$ ，通过对向量取模即可得到距离\f$dist\f$。
+     * </ul>
+     */
     const cv::Mat PO = P-mOw;
 	//取模就得到了距离
     const float dist = cv::norm(PO);
@@ -605,57 +681,80 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 
     // Check viewing angle
     // V-D 2) 计算当前视角和平均视角夹角的余弦值, 若小于cos(60), 即夹角大于60度则返回
+    /** <li> 7. <b>关卡四</b>：计算当前视角和平均视角夹角的余弦值, 若小于cos(60), 即夹角大于60度则返回 </li>     
+     * <ul>
+     */ 
+    /** <li> 7.1 使用 MapPoint::GetNormal() 来获得平均视角(其实是一个单位向量\f$ \mathbf{P}_n \f$ ) </li> */
 	//获取平均视角，目测这个平均视角只是一个方向向量，模长为1，它表示了当前帧下观测到的点的分布情况
-	//TODO 但是这个平均视角估计是在map.cpp或者mapoint.cpp中计算的，还不是很清楚这个具体含义
+	//TODO 但是这个平均视角估计是在map.cpp或者mapoint.cpp中计算的，还不是很清楚这个具体含义  其实现在我觉得就是普通的视角的理解吧
     cv::Mat Pn = pMP->GetNormal();
 
-	//计算当前视角和平均视角夹角的余弦值，注意平均视角为单位向量
+	/** <li> 7.2 计算当前视角和平均视角夹角的余弦值，注意平均视角为单位向量 </li>  \n
+     * 其实就是初中学的计算公式： \n
+     * \f$  viewCos= {\mathbf{P}_0 \cdot \mathbf{P}_n }/{dist} \f$
+    */
     const float viewCos = PO.dot(Pn)/dist;
 
+    /** <li> 7.3 然后判断视角是否超过阈值即可。 </li></ul> */
 	//如果大于规定的阈值，认为这个点太偏了，重投影不可靠，返回
     if(viewCos<viewingCosLimit)
         return false;
 
     // Predict scale in the image
     // V-D 4) 根据深度预测尺度（对应特征点在一层）
+    /** <li> 8. 经过了上面的重重考验，说明这个地图点可以被重投影了。接下来需要记录关于这个地图点的一些信息：</li> <ul>*/
+     
 	//TODO 不是很理解，貌似使用到了图像金字塔的相关知识。在图像金字塔中，好像是不同层次的图像对应着不同的尺度
+    /** <li> 8.1 使用 MapPoint::PredictScale() 来预测该地图点在现有距离 \f$ dist \f$ 下时，在当前帧
+     * 的图像金字塔中，所可能对应的尺度。\n
+     * 其实也就是预测可能会在哪一层。这个信息将会被保存在这个地图点对象的 MapPoint::mnTrackScaleLevel 中。
+    */
     const int nPredictedLevel = pMP->PredictScale(dist,		//这个点到光心的距离
 												  this);	//给出这个帧
 
     // Data used by the tracking	
-    // 标记该点将来要被投影
+    /** <li> 8.2 通过置位标记 MapPoint::mbTrackInView 来表示这个地图点要被投影 </li> */
     pMP->mbTrackInView = true;	
+    /** <li> 8.3 然后计算这个点在左侧图像和右侧图像中的横纵坐标。 </li> 
+     * 地图点在当前帧中被追踪到的横纵坐标其实就是其投影在当前帧上的像素坐标 u,v => MapPoint::mTrackProjX,MapPoint::mTrackProjY \n
+     * 其中在右侧图像上的横坐标 MapPoint::mTrackProjXR 按照公式计算：\n
+     * \f$ X_R=u-z^{-1} \cdot mbf \f$ \n
+     * 其来源参考SLAM十四讲的P51式5.16。
+    */
     pMP->mTrackProjX = u;				//该地图点投影在左侧图像的像素横坐标
     pMP->mTrackProjXR = u - mbf*invz; 	//bf/z其实是视差，为了求右图像中对应点的横坐标就得这样减了～
 										//这里确实直接使用mbf计算会非常方便
     pMP->mTrackProjY = v;				//该地图点投影在左侧图像的像素纵坐标
+
     pMP->mnTrackScaleLevel = nPredictedLevel;		//TODO 根据上面的计算来看是存储了根据深度预测的尺度，但是有什么用不知道
-    pMP->mTrackViewCos = viewCos;					//当前视角和平均视角夹角的余弦值
+    /** <li> 8.4 保存当前视角和平均视角夹角的余弦值 </li></ul>*/
+    pMP->mTrackViewCos = viewCos;					
 
     //执行到这里说明这个地图点在相机的视野中并且进行重投影是可靠的，返回true
     return true;
+
+    /** </ul> */
 }
 
-/**
- * @brief 找到在 以x,y为中心,边长为2r的方形内且在[minLevel, maxLevel]的特征点
- * @param x        图像坐标u
- * @param y        图像坐标v
- * @param r        边长
- * @param minLevel 最小尺度，图像金字塔中的概念，其实对应着图像金字塔中的层
- * @param maxLevel 最大尺度
- * @return         满足条件的特征点的序号，vector类型
- */
+//找到在 以x,y为中心,边长为2r的方形内且在[minLevel, maxLevel]的特征点
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
+    /** 步骤： <ul> */
 	//生成用于存储搜索结果的vector
     vector<size_t> vIndices;
 	//预分配空间
     vIndices.reserve(N);
 
-	//下面的这段计算的代码其实可以这样理解：
+	
+    /** <li> 1.<b>检查一</b>：检查圆形区域是否在图像中，具体做法是分别求圆形搜索区域的上下左右四个边界是否能够满足图像的边界条件。 </li> \n
+     * 这里的边界条件以圆的左边界为例，就是首先求出左边界所在的图像网格列，然后判断这个网格列位置是否超过了图像网格的上限。类似这样：\n
+     * <img src="../imgs/1.png" alt="图例">
+    */
+
+   //下面的这段计算的代码其实可以这样理解：
 	//首先(mnMaxX-mnMinX)/FRAME_GRID_COLS表示每列网格可以平均分得几个像素坐标的列
 	//那么它的倒数，就可以表示每个像素列相当于多少（<1）个网格的列
-	//而前面的(x-mnMinX-r)，可以看做是从图像的左边界到半径r的园的左边界区域占的像素列数
+	//而前面的(x-mnMinX-r)，可以看做是从图像的左边界到半径r的圆的左边界区域占的像素列数
 	//两者相乘，就是求出那个半径为r的圆的左侧边界在那个网格列中。这个变量的名其实也是这个意思
     const int nMinCellX = max(0,												//这个用来确保最后的值>0
 							  //mnMinX是图像的边界
@@ -685,11 +784,13 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
     if(nMaxCellY<0)
         return vIndices;
 
-	//检查需要搜索的图像金字塔层数范围是否符合要求，可是如果bCheckLevels==0就说明minLevel<=0且maxLevel<0
-	//或者是只要其中有一个层大于0就可以
+    /** <li> 2. <b>检查二</b>:检查需要搜索的图像金字塔层数范围是否符合要求 </li> */
+	//可是如果bCheckLevels==0就说明minLevel<=0且maxLevel<0,或者是只要其中有一个层大于0就可以
 	//TODO 这又意味着什么嘞？层为负的有什么意义？这个需要阅读ORB特征提取那边儿才能够理解
 	//注意这里的minLevel、maxLevel都是函数的入口参数
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
+
+    /** <li> 3. 遍历圆形区域内的所有网格  </li> <ul>*/
 
 	//开始遍历指定区域内的所有网格（X方向）
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
@@ -697,19 +798,18 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 		//开始遍历指定区域内的所有网格（Y方向）
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
-			//获取这个网格内的所有特征点在mvKeysUn中的索引
+            /** <li> 3.1 获取这个网格内的所有特征点在 Frame::mvKeysUn 中的索引,其实也就是得到校正后的特征点。</li>*/
             const vector<size_t> vCell = mGrid[ix][iy];
-			//如果这个图像网格中没有特征点，
+			/** <li> 3.2 如果这个图像网格中没有特征点，那么就直接跳过这个网格. </li> */
             if(vCell.empty())
-				//那么就直接跳过这个网格
                 continue;
 
-			//遍历这个图像网格中所有的特征点
+            /** <li> 3.3 如果这个网格中有特征点，那么遍历这个图像网格中所有的特征点 </li> <ul>*/
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
-				//根据索引先读取这个特征点
+				/** <li> 3.3.1 根据索引先读取这个特征点 </li> */
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
-				//如果图层的检查通过了
+				/** <li> 3.3.2 如果给定的搜索图层范围合法，则检查这个特征点是否是在给定搜索图层范围内生成的</li> */
                 if(bCheckLevels)
                 {
 					//那么就检查层
@@ -724,23 +824,28 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
 							//如果不是的话，跳过这个特征点
                             continue;
                 }//检查这个特征点是否在指定的图像金字塔层范围之间
+                
 
                 //通过检查，说明当前遍历到的这个特征点在指定的图像金字塔层范围之间
-                //计算这个特征点到指定的搜索中心的距离（x方向和y方向）
+                /** <li> 3.3.3 计算这个特征点到指定的搜索中心的距离（x方向和y方向），查看是否是在这个圆形区域之内。
+                 * 在的话就追加到结果的vector中。</li>*/
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
-				//TODO 为什么在这里不需要进行坐标的尺度变换？还是说kpUn中存储的就已经是变换后的坐标？
+				//NOTICE 在这里，kpUn中存储的就已经是变换后的坐标、相对于整张图片来讲的坐标
 
 				//如果x方向和y方向的距离都在指定的半径之内，
                 if(fabs(distx)<r && fabs(disty)<r)
 					//那么说明这个特征点就是我们想要的！！！将它追加到结果vector中
                     vIndices.push_back(vCell[j]);
             }//遍历这个图像网格中所有的特征点
+            /** </ul> */
         }//开始遍历指定区域内的所有网格（Y方向）
-    }//开始遍历指定区域内的所有网格（X方向）
+    }//开始遍历指定区域内的所有网格（X方向） 
+    /** </ul> */
 
     //返回搜索结果
     return vIndices;
+    /** </ul> */
 }
 
 
@@ -749,9 +854,14 @@ bool Frame::PosInGrid(			//返回值：true-说明找到了指定特征点所在
 	const cv::KeyPoint &kp,		//输入，指定的特征点
 	int &posX,int &posY)		//输出，指定的图像特征点所在的图像网格的横纵id（其实就是图像网格的坐标）
 {
+    /** 这段函数的想法很简单，就是利用划分网格时的图像边界坐标 Frame::mnMinX Frame::mnMinY 和特征点本身的坐标来计算到图像边界需要多少个图像网格列，
+     * 从而得到这个特征点的归属。\n
+     * 当然具体计算的时候需要检查这个特征点是否能够正确地落到划分的图像网格中。 \n
+     * @todo 但是我不明白的是，这里不应该使用四舍五入啊。。。这里应该使用完全去除小数部分的取整方法啊，可能与图像网格的设计有关 
+    */
+
 	//std::round(x)返回x的四舍五入值
 	//根据前面的分析，mfGridElementWidthInv就是表示一个像素列相当于多少个（<1）图像网格列
-	//TODO  但是我不明白的是，这里不应该使用四舍五入啊。。。这里应该使用完全去除小数部分的取整方法啊，可能与图像网格的设计有关
     posX = round((kp.pt.x-mnMinX)*mfGridElementWidthInv);
     posY = round((kp.pt.y-mnMinY)*mfGridElementHeightInv);
 
@@ -765,40 +875,40 @@ bool Frame::PosInGrid(			//返回值：true-说明找到了指定特征点所在
     return true;
 }
 
-/**
- * @brief Bag of Words Representation	词袋表示法 \n
- * 计算词包 mBowVec 和 mFeatVec ，其中 mFeatVec 记录了属于第i个node（在第4层）的ni个描述子
- * @see CreateInitialMapMonocular() TrackReferenceKeyFrame() Relocalization()
- */
+//计算词包 mBowVec 和 mFeatVec
 void Frame::ComputeBoW()
 {
-	//如果当前帧的词袋是空的
+	
+    /** 这个函数只有在当前帧的词袋是空的时候才回进行操作。步骤如下:<ul> */
     if(mBowVec.empty())
     {
-		//那么就要写入词袋信息，将cv中的描述子转换成为vector<cv::Mat>存储
+		/** <li> 1.要写入词袋信息,将以OpenCV格式存储的描述子 Frame::mDescriptors 转换成为vector<cv::Mat>存储</li> */
         vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
-		//将特征点的描述子转换成为当前帧的词袋
+		/** <li> 2. 将特征点的描述子转换成为当前帧的词袋 </li> */
         mpORBvocabulary->transform(vCurrentDesc,	//当前的描述子vector
 								   mBowVec,			//输出，词袋向量
 								   mFeatVec,		//输出，保存有特征点索引的特征 vector
 								   4);				//获取某一层的节点索引
-		//TODO 为什么这里要指定“获取某一层的节点索引”？
+		//@todo 为什么这里要指定“获取某一层的节点索引”？
     }//判断当前帧的词袋是否是空的
+    /** </ul> */
 }
 
-// 调用OpenCV的矫正函数矫正orb提取的特征点
-//说白了就是去畸变
+//对特征点去畸变
 void Frame::UndistortKeyPoints()
 {
-    // 如果没有图像是矫正过的，没有失真
+    /** 步骤如下：<ul>*/
+    
+    /** <li> 1. 如果图像校正过，那么就直接赋值 Frame::mvKeysUn = Frame::mvKeys 不在进行其他操作 </ul> */
 	//TODO 变量mDistCoef中存储了opencv指定格式的去畸变参数，但是详细的定义未知
     if(mDistCoef.at<float>(0)==0.0)
     {
-		//如果图像校正过，那么就直接赋值
         mvKeysUn=mvKeys;
-		//然后跳过后面的操作
+		//跳过后面的操作
         return;
     }//判断图像是否已经矫正过
+
+    //HERE
 
     // Fill matrix with points，其实就是将每个特征点的坐标保存到一个矩阵中
     // N为提取的特征点数量，将N个特征点保存在N*2的mat中
@@ -845,6 +955,7 @@ void Frame::UndistortKeyPoints()
 		//然后送回保存
         mvKeysUn[i]=kp;
     }//遍历每一个特征点
+    /** </ul> */
 }
 
 //计算图像的边界

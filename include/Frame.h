@@ -159,8 +159,8 @@ public:
     // 存放在mBowVec中
     /**
      * @brief 计算词袋模型 
-     * @details 计算好的词袋将会被存储在 mBowVec 和 mFeatVec 中.
-     * 
+     * @details 计算词包 mBowVec 和 mFeatVec ，其中 mFeatVec 记录了属于第i个node（在第4层）的ni个描述子
+     * @see CreateInitialMapMonocular() TrackReferenceKeyFrame() Relocalization()
      */
     void ComputeBoW();
 
@@ -175,8 +175,8 @@ public:
 
     // Computes rotation, translation and camera center matrices from the camera pose.
     /**
-     * @brief 更新当前帧对象中的所有表示位姿的矩阵
-     * 
+     * @brief 根据相机位姿,计算相机的旋转,平移和相机中心等矩阵.
+     * @details 其实就是根据Tcw计算mRcw、mtcw和mRwc、mOw.
      */
     void UpdatePoseMatrices();
 
@@ -207,14 +207,17 @@ public:
 
     // Check if a MapPoint is in the frustum of the camera
     // and fill variables of the MapPoint to be used by the tracking
-    // 判断路标点是否在视野中
+
     /**
      * @brief 判断路标点是否在视野中,并且对在tracking中使用到的地图点进行处理
+     * @details 计算了重投影坐标，观测方向夹角，预测路标点在当前帧的尺度\n
+     * 猜测是这样的，如果一个点所在的视角偏离平均视角较大（程序中给的是60°），那么认为这个点不可靠
      * 
      * @param[in] pMP                   地图点的句柄
-     * @param[in] viewingCosLimit       视角余弦值的极小值
+     * @param[in] viewingCosLimit       视角和平均视角的方向阈值
      * @return true                     在相机视野中
      * @return false                    不在相机视野中
+     * @see SearchLocalPoints()
      */
     bool isInFrustum(MapPoint* pMP, float viewingCosLimit);
 
@@ -222,6 +225,7 @@ public:
 	//根据特征点的坐标计算该点所处的图像网格
     /**
      * @brief 根据特征点的坐标计算该点所处的图像网格
+     * 
      * 
      * @param[in] kp        特征点的坐标
      * @param[out] posX     所处的图像网格的横坐标
@@ -239,9 +243,9 @@ public:
      * @param[in] x                 区域中心x坐标
      * @param[in] y                 区域中心y坐标
      * @param[in] r                 区域的半径r
-     * @param[in] minLevel          搜索的图像金字塔层数的下限
-     * @param[in] maxLevel          搜索的图像金字塔层数的上限
-     * @return vector<size_t>       包含有这个区域内所有特征点的向量    
+     * @param[in] minLevel          搜索的图像金字塔层数的下限,也可以理解为最小尺度
+     * @param[in] maxLevel          搜索的图像金字塔层数的上限，同样可以理解为最大尺度
+     * @return vector<size_t>       包含有这个区域内所有特征点的向量，该向量中存储的的是特征点的序号
      */
     vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
 
@@ -462,8 +466,9 @@ private:
 	//根据给出的校正参数对图像的特征点进行去校正操作，由构造函数调用
     /**
      * @brief 根据给出的校正参数对图像的特征点进行去校正操作 \n 
-     * @details 由构造函数调用
-     * 
+     * @details 由构造函数调用。\n
+     * 说白了就是将 Frame::mvKeys 中的特征点根据 Frame::mDistCoef中存储的去畸变参数进行去畸变操作，得到去畸变之后的特征点
+     * 坐标，并且存储在 Frame::mvKeysUn 中。
      */
     void UndistortKeyPoints();
 

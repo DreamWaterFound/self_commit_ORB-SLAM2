@@ -32,7 +32,11 @@
 namespace ORB_SLAM2
 {
 
-//提取器节点。用于在特征点的分配过程中。
+/**
+ * @brief 提取器节点
+ * @details 用于在特征点的分配过程中。
+ * 
+ */
 class ExtractorNode
 {
 public:
@@ -56,7 +60,11 @@ public:
 };
 
 
-//这个才是ORB提取器的类
+
+/**
+ * @brief ORB特征点提取器
+ * 
+ */
 class ORBextractor
 {
 public:
@@ -79,10 +87,18 @@ public:
 
     // Compute the ORB features and descriptors on an image.
     // ORB are dispersed on the image using an octree.
-    //使用八叉树的方法将提取到的ORB特征点尽可能均匀地分布在整个图像中
+    //
     // Mask is ignored in the current implementation. 的确是，函数中实际上并没有用到MASK。
-    //这里是重载了这个ORBextractor类的括号运算符
     //TODO 这是一个括号运算符的重载定义，我想看看是怎么调用这个函数的
+    /**
+     * @brief 使用八叉树的方法将提取到的ORB特征点尽可能均匀地分布在整个图像中
+     * @details 这里是重载了这个ORBextractor类的括号运算符
+     * 
+     * @param image         要操作的图像
+     * @param mask          图像掩膜，辅助进行图片处理，可以参考[https://www.cnblogs.com/skyfsm/p/6894685.html]
+     * @param keypoints     保存提取出来的特征点的向量
+     * @param descriptors   输出用的保存特征点描述子的cv::Mat
+     */
     void operator()( 
 				cv::InputArray image, 					//要操作的图像
 				cv::InputArray mask,					//图像掩膜，辅助进行图片处理，可以参考[https://www.cnblogs.com/skyfsm/p/6894685.html]

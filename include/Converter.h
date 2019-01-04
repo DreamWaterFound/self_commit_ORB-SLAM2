@@ -39,24 +39,24 @@
 #include"Thirdparty/g2o/g2o/types/types_seven_dof_expmap.h"
 
 /**
- * @brief ORB-SLAM2 自定义的命名空间。 \n
- * 该命名空间中包含了所有的ORB-SLAM2的组件。
+ * @brief ORB-SLAM2 自定义的命名空间。 
+ * @details 该命名空间中包含了所有的ORB-SLAM2的组件。
  * 
  */
 namespace ORB_SLAM2
 {
 
 /**
- * @brief 实现了 ORB-SLAM2中的一些常用的转换。 \n
- * 注意这是一个完全的静态类，没有成员变量，所有的成员函数均为静态的。
+ * @brief 实现了 ORB-SLAM2中的一些常用的转换。 
+ * @details 注意这是一个完全的静态类，没有成员变量，所有的成员函数均为静态的。
  */
 class Converter
 {
 public:
 
     /**
-     * @brief 描述子矩阵到单行的描述子向量的转换. \n
-     * cv::Mat -> std::vector<cv::Mat> \n
+     * @brief 描述子矩阵到单行的描述子向量的转换. 
+     * @details cv::Mat -> std::vector<cv::Mat> \n
      * 转换后的结果就是吧cv::Mat的每一行直接串联起来。
      * 
      * @param[in] Descriptors 待转换的描述子
@@ -67,7 +67,7 @@ public:
 
     /**
      * @name toSE3Quat
-     * 将不同格式存储的位姿统一转换成为g2o::SE3Quat格式存储
+     * @details 将不同格式存储的位姿统一转换成为g2o::SE3Quat格式存储
      * @{
      */
     
@@ -90,7 +90,7 @@ public:
 
     /**
      * @name toCvMat \n
-     * 将各种格式转换成为cv::Mat存储
+     * @details 将各种格式转换成为cv::Mat存储
      * @{
      */
 
@@ -134,7 +134,7 @@ public:
     static cv::Mat toCvMat(const Eigen::Matrix<double,3,1> &m);
     /**
      * @brief 将给定的旋转矩阵和平移向量转换为以cv::Mat存储的李群SE3
-     * 其实就是组合旋转矩阵和平移向量来构造SE3
+     * @details 其实就是组合旋转矩阵和平移向量来构造SE3
      * @param[in] R 旋转矩阵
      * @param[in] t 平移向量
      * @return cv::Mat 李群SE3
@@ -145,7 +145,7 @@ public:
 
     /**
      * @name toEigen
-     * 将给出的数据以Eigen库中对应的数据类型存储
+     * @details 将给出的数据以Eigen库中对应的数据类型存储
      * @{
      */
 
