@@ -899,8 +899,8 @@ void Frame::UndistortKeyPoints()
 {
     /** 步骤如下：<ul>*/
     
-    /** <li> 1. 如果图像校正过，那么就直接赋值 Frame::mvKeysUn = Frame::mvKeys 不在进行其他操作 </ul> */
-	//TODO 变量mDistCoef中存储了opencv指定格式的去畸变参数，但是详细的定义未知
+    /** <li> 1. 如果图像校正过，那么就直接赋值 Frame::mvKeysUn = Frame::mvKeys 不再进行其他操作 </li> */
+	//变量mDistCoef中存储了opencv指定格式的去畸变参数，格式为：(k1,k2,p1,p2,k3,k4,k5,k6[,s1,s2,s3,s4[,\taux,\tauy...)
     if(mDistCoef.at<float>(0)==0.0)
     {
         mvKeysUn=mvKeys;
@@ -908,17 +908,18 @@ void Frame::UndistortKeyPoints()
         return;
     }//判断图像是否已经矫正过
 
-    //HERE
 
+    /** <li> 2. 如果图像没有矫正过，那么就要准备进行矫正。 </li> */
+    /** 但是为了避免在矫正的过程中丢失不必要的信息，这里新建了一个 Frame::N x 2 的矩阵用来暂时存储待去畸变的特征点的坐标 */
     // Fill matrix with points，其实就是将每个特征点的坐标保存到一个矩阵中
-    // N为提取的特征点数量，将N个特征点保存在N*2的mat中
+    // N为提取的特征点数量(Frame类的成员变量)，将N个特征点保存在N*2的mat中
     cv::Mat mat(N,2,CV_32F);
 	//遍历每个特征点
     for(int i=0; i<N; i++)
     {
 		//然后将这个特征点的横纵坐标分别保存
         mat.at<float>(i,0)=mvKeys[i].pt.x;
-        `mat.at<float>(i,1)=mvKeys[i].pt.y;
+        mat.at<float>(i,1)=mvKeys[i].pt.y;
     }//遍历每个特征点，并将它们的坐标保存到矩阵中
 
     // Undistort points
@@ -927,20 +928,23 @@ void Frame::UndistortKeyPoints()
     //其中cn为更改后的通道数，rows=0表示这个行将保持原来的参数不变
     //不过根据手册发现这里的修改通道只是在逻辑上修改，并没有真正地操作数据
     //这里调整通道的目的应该是这样的，下面的undistortPoints()函数接收的mat认为是2通道的，两个通道的数据正好组成了一个点的两个坐标
+    /** <li> 3. 为了能够直接调用opencv的函数来去畸变，需要先将刚才的临时矩阵调整为2通道 </li> */
     mat=mat.reshape(2);
+    /** <li> 4. 调用 cv::undistortPoints() 函数，结合去畸变参数 Frame::mDistCoef 来对这些点进行去畸变矫正 </li> */
     cv::undistortPoints(	// 用cv的函数进行失真校正
 		mat,				//输入的特征点坐标
 		mat,				//输出的特征点坐标，也就是校正后的特征点坐标， NOTICE 并且看起来会自动写入到通道二里面啊
 		mK,					//相机的内参数矩阵
 		mDistCoef,			//TODO 还不知道用来做什么的变量，不过目测来看好像是去畸变参数的向量？
-		cv::Mat(),			//一个空的cv::Mat()类型，对应为函数原型中的R
+		cv::Mat(),			//一个空的cv::Mat()类型，对应为函数原型中的R。Opencv的文档中说如果是单目相机，这里可以是恐惧真
 		mK); 				//相机的内参数矩阵，对应为函数原型中的P
 	
-	//然后调整回只有一个通道，回归我们正常的处理方式
+	/** <li> 5. 然后调整回只有一个通道，回归我们正常的处理方式 </li> */
     mat=mat.reshape(1);
 
     // Fill undistorted keypoint vector
     // 存储校正后的特征点
+    /** <li> 6.然后将得到的去畸变的点的坐标和原来的信息合并，存储在 Frame::mvKeysUn 中 </li> */
 	//预分配空间
     mvKeysUn.resize(N);
 	//遍历每一个特征点
@@ -958,14 +962,21 @@ void Frame::UndistortKeyPoints()
     /** </ul> */
 }
 
-//计算图像的边界
+//计算去畸变图像的边界
 void Frame::ComputeImageBounds(const cv::Mat &imLeft)	//参数是需要计算边界的图像
 {
-	//这里判断是是否已经经过了校正操作了
+    
+
+    /** 步骤如下： <ul> */
+    /** <li> 1. 首先判断是是否已经经过了校正操作了 <\li>*/
     if(mDistCoef.at<float>(0)!=0.0)
 	{
-		//运行到这里说明没有进行校正操作
-        // 矫正前四个边界点：(0,0) (cols,0) (0,rows) (cols,rows)
+        /** <li> 2. 如果图像没有进行矫正操作，那么就要先保存矫正前的四个边界点坐标：  <\li>
+         * \n (0,0) (cols,0) (0,rows) (cols,rows)
+         * \n 然后结合去畸变参数 Frame::mDistCoef 调用 cv::undistortPoints() 进行去畸变操作。
+         * \n 注意校正后的四个边界点已经不能够围成一个严格的矩形，因此在这个四边形的外侧加边框作为坐标的边界。
+        */
+		
 		//保存四个边界点的变量
         cv::Mat mat(4,2,CV_32F);
         mat.at<float>(0,0)=0.0;         //左上
@@ -991,16 +1002,18 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)	//参数是需要计算边
     }
     else
     {
-		//如果图像已经校正过，那么就直接获得图像边界
+        /** <li> 3. 如果图像已经校正过，那么就直接获得图像边界  <\li>*/
         mnMinX = 0.0f;
         mnMaxX = imLeft.cols;
         mnMinY = 0.0f;
         mnMaxY = imLeft.rows;
     }//判断图像是否已经矫正过，从而采取不同的获得图像边界的策略
+
+    /** </ul> */
 }
 
-/**
- * @brief 双目匹配
+/*
+ * 双目匹配函数
  *
  * 为左图的每一个特征点在右图中找到匹配点 \n
  * 根据基线(有冗余范围)上描述子距离找到匹配, 再进行SAD精确定位 \n ‘
@@ -1011,29 +1024,36 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)	//参数是需要计算边
  */
 void Frame::ComputeStereoMatches()
 {
+    /** 这个算法比较复杂。步骤如下： <ul> */
+
     //初始化用作输出的类成员变量，初始值均为-1
 	mvuRight = vector<float>(N,-1.0f);		//存储在右图像中匹配到的特征点坐标
     mvDepth = vector<float>(N,-1.0f);		//以及这对特征点的深度估计
 
-	//一种描述ORB距离的阈值，如果匹配的ORB特征点描述子的距离大于这个阈值，我们就认为是错误的匹配
+    /** <li> 1. 按下式计算ORB距离的阈值。如果匹配的ORB特征点描述子的距离大于这个阈值，我们就认为是错误的匹配 </li> 
+     * \n \f$ distance = (1/2)\cdot (TH_HIGH+TH_LOW) \f$
+     * \n 其中两个阈值分别为 ORBmatcher::TH_HIGH 和 ORBmatcher::TH_LOW 
+    */
 	//TODO 但是我还是不明白为什么要按下式计算
     const int thOrbDist = (ORBmatcher::TH_HIGH+ORBmatcher::TH_LOW)/2;
 
-	//TODO 获取图像金子塔第0层行数？这个需要知道mvImagePyramid的数据结构和意义
-	//目测是的，其实也就是获取整个图像的行数
+    /** <li> 2. 通过获取 ORBextractor::mvImagePyramid 也就是图像金字塔第0层的行数得到整个图像的行数 </li> */
     const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
 
     //Assign keypoints to row table
-    // 步骤1：建立特征点搜索范围对应表，一个特征点在一个带状区域内搜索匹配特征点
-    //匹配搜索的时候，不仅仅是在一条横线上搜索，而是在一条横向搜索带上搜索,简而言之，原本每个特征点的纵坐标为1，
-	//这里把特征点体积放大，纵坐标占好几行, 例如左目图像某个特征点的纵坐标为20，那么在右侧图像上搜索时是在纵坐标为
-	//18到22这条带上搜索，搜索带宽度为正负2，搜索带的宽度和特征点所在金字塔层数有关
-    // 简单来说，如果纵坐标是20，特征点在图像第20行，那么认为18 19 20 21 22行都有这个特征点
-    // vRowIndices[18]、vRowIndices[19]、vRowIndices[20]、vRowIndices[21]、vRowIndices[22]都有这个特征点编号
-	//TODO 目前对“特征点所在的金字塔层数”还没有很好的理解
-	
-	//存储每行所能够匹配到的特征点的索引
-	//说白了在右图就是每行一个vector，存储可能存在的特征点id
+    /** <li> 3.<b>关键步骤一</b> 建立特征点搜索范围对应表，一个特征点在一个带状区域内搜索匹配特征点 </li> 
+     * \n 匹配搜索的时候，不仅仅是在一条横线上搜索，而是在一条横向搜索带上搜索,简而言之，原本每个特征点的纵坐标为1，
+     * 这里把特征点体积放大，纵坐标占好几行, 例如左目图像某个特征点的纵坐标为20，那么在右侧图像上搜索时是在纵坐标为
+     * 18到22这条带上搜索，搜索带宽度为正负2，搜索带的宽度和特征点所在金字塔层数有关.
+     * \n 
+     * 简单来说，如果纵坐标是20，特征点在图像第20行，那么认为18 19 20 21 22行都有这个特征点:
+     * \n 
+     * 变量 vRowIndices[18]、vRowIndices[19]、vRowIndices[20]、vRowIndices[21]、vRowIndices[22]都有这个特征点编号。
+     * \n
+     * \n 在具体操作上: <ul>
+     */    
+
+	//存储每行所能够匹配到的特征点的索引，说白了就是在右图就是每行一个vector，存储可能存在的特征点id
     vector<vector<size_t> > vRowIndices(nRows,				//元素个数
 										vector<size_t>());	//初始值
 
@@ -1045,7 +1065,7 @@ void Frame::ComputeStereoMatches()
 	//获取右图图像中提取出的特征点的个数
     const int Nr = mvKeysRight.size();
 
-	//遍历右图中所有提取到的特征点
+	/** <li > 首先遍历右图中所有提取到的特征点，对每个特征点进行如下操作： </li> <ul>*/
     for(int iR=0; iR<Nr; iR++)
     {
         // !!在这个函数中没有对双目进行校正，双目校正是在外层程序中实现的
@@ -1058,41 +1078,58 @@ void Frame::ComputeStereoMatches()
 		//这里想想也能够明白，在图像金字塔的高层，一个像素其实对应到底层是好几个像素
 		//到这里应该是默认右侧图像已经进行了特征点的提取
 		//计算这个搜索范围
+        //这里的.octave属性就是特征点所在的金字塔层
+        /** <li> 获得该特征点所在的金字塔层数，并且从 Frame::mvScaleFactors 中得到这层金字塔的缩放系数  </li> */
         const float r = 2.0f*mvScaleFactors[mvKeysRight[iR].octave];
+        /** <li> 然后这个特征点的纵坐标±这个系数，取整，得到搜索界的上下界 </li> */
         const int maxr = ceil(kpY+r);		//保存大于这个数的最小整数，搜索带下界
         const int minr = floor(kpY-r);		//保存小于等于这个数的最小整数，搜索带上界
 
 		//使搜索带范围内的vector记录这个特征点的索引，注意这个特征点是在右图中的
 		//最后生成的这个东西叫做“搜索范围对应表”
 		//在这里将当前这个特征点的id标记在搜索带对应的所有行上
+        /** <li> 在搜索界中的每一行标记这个特征点的索引，表示在某一行这个特征点会出现 */
         for(int yi=minr;yi<=maxr;yi++)
             vRowIndices[yi].push_back(iR);
     }//遍历右图中所有提取到的特征点
+    /** </ul> */
+    /** </ul> */
+
+    /** <li> <b>关键步骤二<\b> 对左目相机每个特征点，通过描述子在右目带状搜索区域找到匹配点, 再通过SAD做亚像素匹配 </li>
+     * \n 详细步骤如下： <ul>
+    */
 
     // Set limits for search
-    const float minZ = mb;			//NOTE bug mb没有初始化，mb的赋值在构造函数中放在ComputeStereoMatches函数的后面
+    /** <li> 设置一些变量： </li> <ul>*/
+    /** <li> 设置最小深度等于基线长度 </li> */
+    const float minZ = mb;			//NOTE bug mb没有初始化，mb的赋值在构造函数中放在 ComputeStereoMatches 函数的后面
 									//TODO 回读代码的时候记得检查上面的这个问题
 									//这个变量对应着允许的空间点在当前相机坐标系下的最小深度
 									//TODO 新问题：这里设置最小深度等于基线的原因是什么?自己的猜测，可能和相机的视角有一定关系
-    const float minD = 0;			// 最小视差, 设置为0即可  对应着最大深度
-    const float maxD = mbf/minZ;  	// 最大视差, 对应最小深度 mbf/minZ = mbf/mb = mbf/(mbf/fx) = fx (wubo???)
-									//相关公式@视觉SLAM十四讲P91 式5.16
+    /** <li> 最小视差, 设置为0即可  对应着最大深度 </li> */
+    const float minD = 0;			 
+    /** <li> 最大视差, 对应最小深度，可以计算得到 </li> 
+     * \f$ \frac{mbf}{minZ} \f$
+     * \n 相关公式@视觉SLAM十四讲P91 式5.16
+    */
+    const float maxD = mbf/minZ;  	// 最大视差, 对应最小深度 mbf/minZ = mbf/mb = mbf/(mbf/fx) = fx (wubo???)									
+    /** </ul> */
 
     // For each left keypoint search a match in the right image
     //用于记录匹配点对的vector
-    //不过这里的两个int在最后分别存储的内容是，最佳距离bestDist(SAD匹配最小匹配偏差)，以及对应的左图特征点的id iL
+    //NOTE 不过这里的两个 int 在最后分别存储的内容是，最佳距离 bestDist (SAD匹配最小匹配偏差)，以及对应的左图特征点的id iL
     vector<pair<int, int> > vDistIdx;
     vDistIdx.reserve(N);
 
-    // 步骤2：对左目相机每个特征点，通过描述子在右目带状搜索区域找到匹配点, 再通过SAD做亚像素匹配
+    
     // NOTICE 注意：这里是校正前的mvKeys，而不是校正后的mvKeysUn
     // NOTICE KeyFrame::UnprojectStereo和Frame::UnprojectStereo函数中不一致
     // 这里是不是应该对校正后特征点求深度呢？(wubo???)
-	//NOTE 自己的理解：这里是使用的双目图像，而默认地，双目图像的校正在驱动程序那一关就已经进行了吧？
-	//下面开始遍历左图中的特征点 
+	//NOTE 自己的理解：这里是使用的双目图像，而默认地，双目图像的校正在驱动程序那一关就已经进行了吧？ 
+    /** <li> 遍历左图中的特征点  </li> */
     for(int iL=0; iL<N; iL++)
     {
-		//获取当前遍历到的这个特征点
+		/** <li> 获取这个特征点，并且判断在右图中这个特征点所在的行中可能的匹配到的特征点 </li> */
 		const cv::KeyPoint &kpL = mvKeys[iL];
 		//获取这个特征点所在的金字塔图像层
         const int &levelL = kpL.octave;
@@ -1100,10 +1137,12 @@ void Frame::ComputeStereoMatches()
         const float &vL = kpL.pt.y;
         const float &uL = kpL.pt.x;
 
-        // 可能的匹配点，注意这里存储的是右图的特征点索引
+        
+
+        // 获取这个特征点所在行，在右图中可能的匹配点，注意这里 vRowIndices 存储的是右图的特征点索引
         const vector<size_t> &vCandidates = vRowIndices[vL];
 
-		//如果当前的左图中的这个特征点所在的行，右图中同样的行却没有可能的匹配点，那么就跳过当前的这个点
+        /** <li> 如果当前的左图中的这个特征点所在的行，右图中同样的行却没有可能的匹配点，那么就跳过当前的这个点 </li> */
         if(vCandidates.empty())
             continue;
 
@@ -1205,7 +1244,7 @@ void Frame::ComputeStereoMatches()
             vDists.resize(2*L+1); // 11
 
             // 滑动窗口的滑动范围为（-L, L）,提前判断滑动窗口滑动过程中是否会越界
-			//TODO 不理解这里是怎么做的 ALERT
+			//TODO 不理解这里是怎么做的 
             const float iniu = scaleduR0+L-w; 	//这个地方是否应该是scaleduR0-L-w (wubo???)
             const float endu = scaleduR0+L+w+1;	//这里+1是因为下面的*.cols，这个列数是从1开始计算的吧
 			
@@ -1291,6 +1330,8 @@ void Frame::ComputeStereoMatches()
         }//如果刚才匹配过程中的最佳描述子距离小于给定的阈值
     }//遍历左图中的特征点 
 
+    /** </ul> */
+
     // 步骤3：剔除SAD匹配偏差较大的匹配特征点
     // 前面SAD匹配只判断滑动窗口中是否有局部最小值，这里通过对比剔除SAD匹配偏差比较大的特征点的深度
     sort(vDistIdx.begin(),vDistIdx.end()); // 根据所有匹配对的SAD偏差进行排序, 距离由小到大
@@ -1313,6 +1354,8 @@ void Frame::ComputeStereoMatches()
             mvDepth[vDistIdx[i].second]=-1;
         }//判断是否符合要求
     }//遍历成功进行SAD过程的左图特征点的“SAD匹配最小匹配偏差”了
+
+    /** </ul> */
 }
 
 //计算RGBD图像的立体深度信息
