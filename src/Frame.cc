@@ -1137,7 +1137,7 @@ void Frame::ComputeStereoMatches()
         const float &vL = kpL.pt.y;
         const float &uL = kpL.pt.x;
 
-        
+        //HERE
 
         // 获取这个特征点所在行，在右图中可能的匹配点，注意这里 vRowIndices 存储的是右图的特征点索引
         const vector<size_t> &vCandidates = vRowIndices[vL];
