@@ -45,7 +45,7 @@ long unsigned int Frame::nNextId=0;
 //这里给这个标志置位的操作是在最初系统开始加载到内存的时候进行的，下一帧就是整个系统的第一帧，所以这个标志要置位
 bool Frame::mbInitialComputations=true;
 
-//TODO 下面这些都没有进行赋值操作，但是也写在这里，是为什么？
+//TODO 下面这些都没有进行赋值操作，但是也写在这里，是为什么？可能仅仅是前视声明?
 //目测好像仅仅是对这些类的静态成员变量做个前视声明，没有发现这个操作有特殊的含义
 float Frame::cx, Frame::cy, Frame::fx, Frame::fy, Frame::invfx, Frame::invfy;
 float Frame::mnMinX, Frame::mnMinY, Frame::mnMaxX, Frame::mnMaxY;
@@ -337,9 +337,9 @@ Frame::Frame(const cv::Mat &imGray, 	//灰度化之后的彩色图像
         mbInitialComputations=false;
     }
 
-    //TODO 额。为毛对RGBD相机也需要计算这个？
-    //感觉应该是计算所谓的假想的"基线长度"
-
+    //由于后面要对从RGBD相机输入的特征点,结合相机基线长度,焦距,以及点的深度等信息来计算其在假想的"右侧图像"上的匹配点,所以
+    //需要计算这个东西
+    //TODO 但是好奇的是,mbf是怎么得到的?
     /** 8. 计算假想的基线长度 baseline= mbf/fx */
     mb = mbf/fx;
 
@@ -494,23 +494,24 @@ void Frame::AssignFeaturesToGrid()
 void Frame::ExtractORB(int flag, 			//0-左图  1-右图
 					   const cv::Mat &im)	//等待提取特征点的图像
 {
-    /** 步骤: */
-	/** 1. 判断是左图还是右图 */
+    /** 步骤:<ul>*/
+    /** <li> 判断是左图还是右图 </li> */
     if(flag==0)
-		/** 2. 左图的话就套使用左图指定的特征点提取器，并将提取结果保存到对应的变量中 \n
+        /** <li> 左图的话就套使用左图指定的特征点提取器，并将提取结果保存到对应的变量中 \n
 		 * 其实这里的提取器句柄就是一个函数指针...或者说,是运算符更加合适 \n
-         * ORBextractor::operator() 
-         */
+         * ORBextractor::operator()  </li> */
         (*mpORBextractorLeft)(im,				//待提取特征点的图像
 							  cv::Mat(),		//TODO ？？？？ 这个参数的含义要参考这部分的源文件才能知道
+                                                //问题是参考了源文件也不清楚,说是掩摸图像,但实际在对应的程序中根本就没有用到
 							  mvKeys,			//输出变量，用于保存提取后的特征点
 							  mDescriptors);	//输出变量，用于保存特征点的描述子
     else
-		/** 3. 右图的话就需要使用右图指定的特征点提取器，并将提取结果保存到对应的变量中 \n ORBextractor::operator() */
+        /** <li> 右图的话就需要使用右图指定的特征点提取器，并将提取结果保存到对应的变量中  </li> \n ORBextractor::operator()  */
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
-	
+	/** </ul> */
 	//所以，上面区分左右图的原因就是因为保存结果的变量不同。不过新的疑问是：
 	// TODO 左图的特征点提取器和右图的特征点提取器有什么不同之处吗？
+    //这个好像的确是有的, 右图的特征点提取貌似是要在左图的基础上进行,来加速特征点的提取过程
 }
 
 // 设置相机姿态，随后会调用 UpdatePoseMatrices() 来改变mRcw,mRwc等变量的值
@@ -704,7 +705,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     // V-D 4) 根据深度预测尺度（对应特征点在一层）
     /** <li> 8. 经过了上面的重重考验，说明这个地图点可以被重投影了。接下来需要记录关于这个地图点的一些信息：</li> <ul>*/
      
-	//TODO 不是很理解，貌似使用到了图像金字塔的相关知识。在图像金字塔中，好像是不同层次的图像对应着不同的尺度
+    //注意在特征点提取的过程中,图像金字塔的不同的层代表着特征点的不同的尺度
     /** <li> 8.1 使用 MapPoint::PredictScale() 来预测该地图点在现有距离 \f$ dist \f$ 下时，在当前帧
      * 的图像金字塔中，所可能对应的尺度。\n
      * 其实也就是预测可能会在哪一层。这个信息将会被保存在这个地图点对象的 MapPoint::mnTrackScaleLevel 中。
@@ -819,7 +820,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                     if(kpUn.octave<minLevel)
 						//如果不是的话，跳过这个特征点
                         continue;
-                    if(maxLevel>=0)		//TODO 为什么要强调这一点？
+                    if(maxLevel>=0)		//TODO 为什么要强调这一点？为什么要强调给定的搜索层范围必须大于0?
                         if(kpUn.octave>maxLevel)
 							//如果不是的话，跳过这个特征点
                             continue;
@@ -935,7 +936,7 @@ void Frame::UndistortKeyPoints()
 		mat,				//输入的特征点坐标
 		mat,				//输出的特征点坐标，也就是校正后的特征点坐标， NOTICE 并且看起来会自动写入到通道二里面啊
 		mK,					//相机的内参数矩阵
-		mDistCoef,			//TODO 还不知道用来做什么的变量，不过目测来看好像是去畸变参数的向量？
+		mDistCoef,			//保存相机畸变参数的变量
 		cv::Mat(),			//一个空的cv::Mat()类型，对应为函数原型中的R。Opencv的文档中说如果是单目相机，这里可以是恐惧真
 		mK); 				//相机的内参数矩阵，对应为函数原型中的P
 	
@@ -968,10 +969,10 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)	//参数是需要计算边
     
 
     /** 步骤如下： <ul> */
-    /** <li> 1. 首先判断是是否已经经过了校正操作了 <\li>*/
+    /** <li> 1. 首先判断是是否已经经过了校正操作了 </li>*/
     if(mDistCoef.at<float>(0)!=0.0)
 	{
-        /** <li> 2. 如果图像没有进行矫正操作，那么就要先保存矫正前的四个边界点坐标：  <\li>
+        /** <li> 2. 如果图像没有进行矫正操作，那么就要先保存矫正前的四个边界点坐标：  </li>
          * \n (0,0) (cols,0) (0,rows) (cols,rows)
          * \n 然后结合去畸变参数 Frame::mDistCoef 调用 cv::undistortPoints() 进行去畸变操作。
          * \n 注意校正后的四个边界点已经不能够围成一个严格的矩形，因此在这个四边形的外侧加边框作为坐标的边界。
@@ -1002,7 +1003,7 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)	//参数是需要计算边
     }
     else
     {
-        /** <li> 3. 如果图像已经校正过，那么就直接获得图像边界  <\li>*/
+        /** <li> 3. 如果图像已经校正过，那么就直接获得图像边界  </li>*/
         mnMinX = 0.0f;
         mnMaxX = imLeft.cols;
         mnMinY = 0.0f;
@@ -1033,6 +1034,8 @@ void Frame::ComputeStereoMatches()
     /** <li> 1. 按下式计算ORB距离的阈值。如果匹配的ORB特征点描述子的距离大于这个阈值，我们就认为是错误的匹配 </li> 
      * \n \f$ distance = (1/2)\cdot (TH_HIGH+TH_LOW) \f$
      * \n 其中两个阈值分别为 ORBmatcher::TH_HIGH 和 ORBmatcher::TH_LOW 
+     * \n 这个阈值在下面进行双目特征点匹配的时候会用到。只有得出的初步匹配的特征点的描述子距离小于这个阈值的时候，我们才能够认为这对匹配是
+     * 正确的匹配，我们才能够进行下一步的SAD算法的操作。
     */
 	//TODO 但是我还是不明白为什么要按下式计算
     const int thOrbDist = (ORBmatcher::TH_HIGH+ORBmatcher::TH_LOW)/2;
@@ -1095,7 +1098,7 @@ void Frame::ComputeStereoMatches()
     /** </ul> */
     /** </ul> */
 
-    /** <li> <b>关键步骤二<\b> 对左目相机每个特征点，通过描述子在右目带状搜索区域找到匹配点, 再通过SAD做亚像素匹配 </li>
+    /** <li> <b>关键步骤二</b> 对左目相机每个特征点，通过描述子在右目带状搜索区域找到匹配点, 再通过SAD做亚像素匹配 </li>
      * \n 详细步骤如下： <ul>
     */
 
@@ -1106,6 +1109,7 @@ void Frame::ComputeStereoMatches()
 									//TODO 回读代码的时候记得检查上面的这个问题
 									//这个变量对应着允许的空间点在当前相机坐标系下的最小深度
 									//TODO 新问题：这里设置最小深度等于基线的原因是什么?自己的猜测，可能和相机的视角有一定关系
+                                    //60度范围内观测的比较准?超过60度之后得到的点可信度比较差
     /** <li> 最小视差, 设置为0即可  对应着最大深度 </li> */
     const float minD = 0;			 
     /** <li> 最大视差, 对应最小深度，可以计算得到 </li> 
@@ -1126,7 +1130,7 @@ void Frame::ComputeStereoMatches()
     // NOTICE KeyFrame::UnprojectStereo和Frame::UnprojectStereo函数中不一致
     // 这里是不是应该对校正后特征点求深度呢？(wubo???)
 	//NOTE 自己的理解：这里是使用的双目图像，而默认地，双目图像的校正在驱动程序那一关就已经进行了吧？ 
-    /** <li> 遍历左图中的特征点  </li> */
+    /** <li> 遍历左图中的特征点，计算当前遍历的这个左图中的特征点在右图中的可能的匹配范围  </li> <ul>*/
     for(int iL=0; iL<N; iL++)
     {
 		/** <li> 获取这个特征点，并且判断在右图中这个特征点所在的行中可能的匹配到的特征点 </li> */
@@ -1137,8 +1141,6 @@ void Frame::ComputeStereoMatches()
         const float &vL = kpL.pt.y;
         const float &uL = kpL.pt.x;
 
-        //HERE
-
         // 获取这个特征点所在行，在右图中可能的匹配点，注意这里 vRowIndices 存储的是右图的特征点索引
         const vector<size_t> &vCandidates = vRowIndices[vL];
 
@@ -1147,42 +1149,54 @@ void Frame::ComputeStereoMatches()
             continue;
 
 		//执行到这说明当前这个左图中的特征点在右图中是有可能匹配的特征点的,接下来计算匹配范围，其实就是在横向上的、合法的匹配范围
+        /** <li> 如果匹配存在，那么根据刚刚计算过的最大最小视差我们可以得到这个点在右图中，在u轴方向（也就是横向）
+         * 上的可能的坐标范围 minU ~ maxU </li> */
         const float minU = uL-maxD; // 最小匹配范围，结果小于uL
         const float maxU = uL-minD; // 最大匹配范围，这个结果其实还是uL，因为前面设置了minD=0;
 
         //其实就算是maxD>uL导致minU<0也是可以的，大不了我就不用管坐标为负的部分；但是如果maxU也小于0，此时的搜索范围就已经不再
         //正常的图片里面了
+        /** <li> 然后判断这个特征点在右图中可能的匹配范围，是否在图像边界之内。</li> 
+         * \n 不过实际计算的时候只要 maxU < 0 我们就可以认为它不在这个图像内。
+        */
         if(maxU<0)
 			//放弃对这个点的右图中的匹配点的搜索
             continue;
+        /** </ul> */
 
 		//最佳的ORB特征点描述子距离
+        /** <li> 设置最佳的ORB特征点描述子距离为 ORBmatcher::TH_HIGH ,并且取得当前左图特征点对应的特征点描述子 </li> */
         int bestDist = ORBmatcher::TH_HIGH;
 		//对应的右图中最佳的匹配点ID
         size_t bestIdxR = 0;
-
         // 每个特征点描述子占一行，建立一个指针指向iL特征点对应的描述子
 		//这里的dL是只有一行的
         const cv::Mat &dL = mDescriptors.row(iL);
 
         // Compare descriptor to right keypoints
+        /** <li> 遍历右目所有可能的匹配点，找出最佳匹配点（描述子距离最小） </li> <ul>*/
         // 步骤2.1：遍历右目所有可能的匹配点，找出最佳匹配点（描述子距离最小）
         for(size_t iC=0; iC<vCandidates.size(); iC++)
         {
+            /** <li> 取得和当前左目特征点对应着的可能匹配的每个右目中的特征点，并且检查： </li> <ul> */
 			//取可能的匹配的右目特征点ID
             const size_t iR = vCandidates[iC];
 			//根据这个ID得到可能的右目匹配特征点
             const cv::KeyPoint &kpR = mvKeysRight[iR];
 
-            // 仅对近邻尺度的特征点进行匹配，这里的“近邻尺度”其实就是对应特征点所在的图像金字塔的层
-			//如果两个特征点匹配但是它们所在的图像金字塔的层数相差过多，也认为是不可靠的
+            /** <li> 检查两个点是否在相邻的尺度中被提取的，也就是检查图像金字塔层数。 </li>
+             * 如果两个特征点匹配但是它们所在的图像金字塔的层数相差过多，也认为是不可靠的
+             */
             if(kpR.octave<levelL-1 || kpR.octave>levelL+1)
                 continue;
 
 			//当前这个可能的匹配的右目特征点的横坐标
             const float &uR = kpR.pt.x;
 
-			//判断这个右目特征点的横坐标是否满足前面计算出来的搜索范围
+            /** <li> 判断这个右目特征点的横坐标是否满足前面计算出来的搜索范围 </li> 
+             * 如果在的话，就计算并更新当前所有匹配点的最短描述子距离信息，并且记录具有最短描述子距离的那个特征点的索引，为下面
+             * 选取正确的特征点做准备。
+            */
             if(uR>=minU && uR<=maxU)
             {
 				//如果在的话，获取这个右目特征点的描述子
@@ -1197,22 +1211,26 @@ void Frame::ComputeStereoMatches()
                     bestIdxR = iR;
                 }//更细最佳的描述子距离信息
             }//判断这个右目特征点的横坐标是否满足前面计算出来的搜索范围
+            /** </ul> */
             //如果那个右目特征点的横坐标不满足前面计算出来的搜索范围的话，就直接跳过对当前的这个点的操作了
         }//遍历右目所有可能的匹配点
         // 最好的匹配的匹配误差存在bestDist，匹配点位置存在bestIdxR中
+        /** </ul> */
 
         // Subpixel match by correlation
         // 步骤2.2：通过SAD匹配提高像素匹配修正量bestincR
+        
         //如果刚才匹配过程中的最佳描述子距离小于给定的阈值
         if(bestDist<thOrbDist)
         {
+            /** <li> 如果刚才匹配过程中得到的最佳描述子距离小于上面给定的阈值，那么接下来就要通过SAD匹配提高像素匹配修正量 bestincR </li> <ul> */
+            /** <li> 首先得到这个左图特征点和这个“具有最佳描述子距离”的右图特征点，在原始图像下的坐标 </li> */
             // coordinates in image pyramid at keypoint scale
 			//下面的这些参数是特征点的尺度所在的图像金字塔的层的坐标
             // kpL.pt.x对应金字塔最底层坐标，将最佳匹配的特征点对尺度变换到尺度对应层 (scaleduL, scaledvL) (scaleduR0, )
-            const float uR0 = mvKeysRight[bestIdxR].pt.x;				//原始的特征点横坐标
+            const float uR0 = mvKeysRight[bestIdxR].pt.x;				//原始的特征点横坐标（右图）
             const float scaleFactor = mvInvScaleFactors[kpL.octave];	//获取该特征点所在层的缩放因子倒数 
-            //下面是将特征点的坐标按照图像金字塔的缩放因子缩放之后得到的新坐标
-            //TODO 问题：这里是将正常的坐标缩放到图像金字塔中的坐标，还是相反的操作？需要看ORB特征提取部分才能了解。
+            //下面是将特征点的坐标按照图像金字塔的缩放因子缩放之后得到的新坐标，即在特征点所对应的图像金字塔中的缩放的图像下的坐标
             const float scaleduL = round(kpL.pt.x*scaleFactor);			
             const float scaledvL = round(kpL.pt.y*scaleFactor);
             const float scaleduR0 = round(uR0*scaleFactor);				//上一步结束后，右图中这个点的基准值（缩放变换后）
@@ -1223,16 +1241,19 @@ void Frame::ComputeStereoMatches()
 							//这个11*11的滑动窗口需要结合下面的语句才能够看出来
 							//这里的resize指的是上面通过图像金字塔的缩放因子进行缩放变换。变换后的图像存储于特征点
 							//提取器中的mvImagePyramid向量中。
+            /** <li> 在左图中取以特征点为中心，在该左特征点被提取的金字塔图层中，w=5 为半径的小窗口图像(11x11)，并且在这个小图像中，计算所有像素和中心像素灰度值
+             * 之差，得到一个所谓的“灰度中心归一化”图像（我自己起的名称） </li> */                            
 			//首先在【左图】中取小窗口中的图像
+            //scaledvL是点在金字塔的那个被缩小了的图像中的坐标
             cv::Mat IL = mpORBextractorLeft->mvImagePyramid[kpL.octave].rowRange(scaledvL-w,scaledvL+w+1).colRange(scaleduL-w,scaleduL+w+1);
 			//由于下面要进行简单的光度归一化，会有浮点数出现，所以在这里要将图像小窗中整型的数据转换成为浮点型的数据
             IL.convertTo(IL,CV_32F);
-            ////窗口中的每个元素减去正中心的那个元素，简单归一化，减小光照强度影响
+            //窗口中的每个元素减去正中心的那个元素，简单归一化，减小光照强度影响
 			IL = IL - IL.at<float>(w,w) * cv::Mat::ones(IL.rows,IL.cols,CV_32F);
 			//这里是提取出窗口的中心像素灰度，然后于整个窗口图像作差,后面乘的单位矩阵是为了满足矩阵的计算法则
 			//自己起个名字叫做“灰度中心归一化”
 
-			//初始化“最佳距离”
+			//初始化“最佳距离”为整型数据所能够表示的最大值
             int bestDist = INT_MAX;
 			//inc是increase的缩写，这个表示经过SAD算法后得出的“最佳距离”所对应的修正量
             int bestincR = 0;
@@ -1243,99 +1264,135 @@ void Frame::ComputeStereoMatches()
 			//调整大小，+1中的1指的是中心点
             vDists.resize(2*L+1); // 11
 
-            // 滑动窗口的滑动范围为（-L, L）,提前判断滑动窗口滑动过程中是否会越界
-			//TODO 不理解这里是怎么做的 
-            const float iniu = scaleduR0+L-w; 	//这个地方是否应该是scaleduR0-L-w (wubo???)
+            /** <li> 滑动窗口的滑动范围为（-L, L）(L=5),提前判断滑动窗口滑动过程中是否会越界 </li> */
+            //REVIEW如果将下面两个变量理解为,相对于滑动窗口左边界或者上边界,窗口中点偏移量的范围,这么说就是正确的了
+            const float iniu = scaleduR0+L-w; 	//这个地方是否应该是scaleduR0-L-w (wubo???) 
             const float endu = scaleduR0+L+w+1;	//这里+1是因为下面的*.cols，这个列数是从1开始计算的吧
-			
 			//这里的确是在判断是否越界
             if(iniu<0 || endu >= mpORBextractorRight->mvImagePyramid[kpL.octave].cols)
                 continue;
 
-			//遍历滑动窗口所有可能在的位置，下面的操作就都是在【右图】上进行的了
+			//
+            /** <li> 遍历滑动窗口在【右图】中所有可能在的位置，下面的操作就都是在右图上进行的了 </li>
+             * 其实是在右图中,横向滑动这个窗口 <ul>*/
             for(int incR=-L; incR<=+L; incR++)
             {
-                // 横向滑动窗口，其实就是获得这次滑动窗口中的图像
+                /** <li> 获取在右图上滑动这个窗口所得到的图像 </li> */
                 cv::Mat IR = mpORBextractorRight->mvImagePyramid[kpL.octave].rowRange(scaledvL-w,scaledvL+w+1).colRange(scaleduR0+incR-w,scaleduR0+incR+w+1);
 				//将整型的图像数据转换为浮点型
                 IR.convertTo(IR,CV_32F);
-				//灰度中心归一化（自己创立的词汇）
-                IR = IR - IR.at<float>(w,w) * cv::Mat::ones(IR.rows,IR.cols,CV_32F);//窗口中的每个元素减去正中心的那个元素，简单归一化，减小光照强度影响
+				/** <li> 然后进行灰度中心归一化(现在感觉叫做作差会更加合适) </li>
+                 * 窗口中的每个元素减去正中心的那个元素，简单归一化，减小光照强度影响
+                 */
+                IR = IR - IR.at<float>(w,w) * cv::Mat::ones(IR.rows,IR.cols,CV_32F);
 
+                /** <li> 然后计算两个滑动窗口图像的差,得到它的一范数,称之为两张图像的图像距离 </li> */
 				//对于这里的cv::norm函数，opencv给出的头文件注释的是：
 				//computes norm of selected part of the difference between two arrays
                 float dist = cv::norm(IL,IR,cv::NORM_L1); // 一范数，计算差的绝对值
-				//更新最佳距离
+                /** <li> 保存图像距离,并且更新最佳的图像距离,同时保存具有这个最佳图像距离的滑动窗口修正量 </li> 
+                 * 其实这里的修正量就是当前的这个滑动窗口中心点相对于原始滑动窗口中心点的横向位移
+                */
                 if(dist<bestDist)
                 {
                     bestDist = dist;// SAD匹配目前最小匹配偏差
                     bestincR = incR; // SAD匹配目前最佳的修正量
                 }
-
                 //L+incR体现了修正量的思想，这里是保存在不同修正量的时候的SAD距离
                 vDists[L+incR] = dist; 	// 正常情况下，这里面的数据应该以抛物线形式变化
 										//NOTE 凭感觉，在一个非常小的区域（10x10pixel）内，这个距离的变化的确是类似于抛物线的。
 										//但是不一定是严格的抛物线吧
+                /** </ul> */
             }
 
-            //这里因为是以抛物线的形式变化，所以在这个滑动区间的两端是不应该出现最佳的修正量的，换句话也就是说最小的匹配误差不应
-            //该出现在滑动窗口滑动区间的两端
+            //
+            //
+            /** <li> 判断最佳修正量是否出现在滑动窗口的两侧.如果出现了说明有问题,直接放弃求该特征点的深度 </li> 
+             * 这里因为,通过刚刚的SAD过程所得到的,在右图中的特征点的像素位置修正量,随着滑动窗口在u轴(-L,L)上滑动时,
+             * 是以抛物线的形式变化，所以在这个滑动区间的两端是不应该出现最佳的修正量的，换句话也就是说最小的匹配误差不应
+             * 该出现在滑动窗口滑动区间的两端.
+            */
             if(bestincR==-L || bestincR==L)
-				// 整个滑动窗口过程中，SAD最小值不是以抛物线形式出现，SAD匹配失败，同时放弃求该特征点的深度
                 continue;
+            /** </ul> */
 
             // Sub-pixel match (Parabola fitting)
             // 步骤2.3：做抛物线拟合找谷底得到亚像素匹配deltaR
-            // (bestincR,dist) (bestincR-1,dist) (bestincR+1,dist)三个点拟合出抛物线
-            // bestincR+deltaR就是抛物线谷底的位置，相对SAD匹配出的最小值bestincR的修正量为deltaR
-			//deltaR是做抛物线拟合的时候，在bestincR的基础上做出的修正量
+            /** <li> 做抛物线拟合找谷底得到亚像素匹配deltaR </li> 
+             * (bestincR,dist) (bestincR-1,dist) (bestincR+1,dist)三个点拟合出抛物线
+             * bestincR+deltaR就是抛物线谷底的位置，相对SAD匹配出的最小值bestincR的修正量为deltaR
+             * deltaR是做抛物线拟合的时候，在bestincR的基础上做出的修正量
+             * <ul>
+             */ 
+            
 			//获取这三个点所对应的SAD距离
             const float dist1 = vDists[L+bestincR-1];	
             const float dist2 = vDists[L+bestincR];
             const float dist3 = vDists[L+bestincR+1];
 
-			//这里可以设抛物线是y=ax^2+bx+c，将三个点代入，求deltaR=-b/2a+x2即可得出这个
+            /** <li> 这里可以设抛物线是y=ax^2+bx+c，将三个点代入，求deltaR=-b/2a+x2即可得出亚像素修正量 deltaR </li> 
+             * 程序中的计算公式为:
+             * \n /f$ /frac{d_1-d_3}{2(d_1+d_3-2d_2}  /f$
+             * \n 公式的相关推导可以看图:
+             * <img src="../imgs/2.png"/>
+             * <img src="../imgs/3.png"/>
+             * <img src="../imgs/4.png"/>
+            */
             const float deltaR = (dist1-dist3)/(2.0f*(dist1+dist3-2.0f*dist2));
 
-            // 抛物线拟合得到的修正量不能超过一个像素，否则放弃求该特征点的深度
-			//的确是，如果修正量超过了一个像素的话，其实也就是说明当前找到的bestincR根本就不对
+            /** <li> 然后判断:抛物线拟合得到的修正量不能超过一个像素，否则放弃求该特征点的深度 </li> 
+             * 的确是，如果修正量超过了一个像素的话，其实也就是说明当前找到的bestincR根本就不对
+             */  
             if(deltaR<-1 || deltaR>1)
                 continue;
+            /** </ul> */
 
+            
+            
             // Re-scaled coordinate
-            // 通过描述子匹配得到匹配点位置为scaleduR0
-            // 通过SAD匹配找到修正量bestincR
-            // 通过抛物线拟合找到亚像素修正量deltaR
-			//然后这个才是最终的最佳匹配点位置
-			//TODO 注意上面的操作都是在resize后的图像金字塔层中做的，这里要缩放到底层。但是为什么是这样，是乘这个因子而不是除，还是得去了解了图像金字塔的结构后才能做出结论
+            /** <li> 接下来要准备计算真正的最佳匹配点的位置 bestuR </li> 
+             * 通过描述子匹配得到匹配点位置为scaleduR0,通过SAD匹配找到修正量bestincR,通过抛物线拟合找到亚像素修正量deltaR加和.
+            */
             float bestuR = mvScaleFactors[kpL.octave]*((float)scaleduR0+(float)bestincR+deltaR);
-
+            
             // 这里是disparity（视差），根据它算出depth，这也就是为什么非要这样精确地得到bestuR的原因
+            /** <li> 计算视差 disparity = (uL-bestuR) ,并且判断视差是否在规定的范围内. 如果不在说明算错了,放弃这个特征点的深度求取 </li> */
             float disparity = (uL-bestuR);
 			// 最后判断视差是否在范围内
             if(disparity>=minD && disparity<maxD) 
             {
-				//如果在的话，判断视差是否为负
+                /** <li> 如果在的话，判断视差是否为负 </li> 
+                 * 若视差为负,则说明视差本身非常低小以至于计算机在进行数值计算时出现了误差
+                 * \n 那么我们就直接设置视差为一个非常小的正数,这里取0.01
+                */
                 if(disparity<=0)
                 {
                     disparity=0.01;
                     bestuR = uL-0.01;
                 }
                 // depth 是在这里计算的
-                // depth=baseline*fx/disparity
+                /** <li> 计算深度,并保存该特征点经过SAD匹配所得到的最小匹配偏差,匹配点的右坐标和深度等数据 </li> 
+                 * \n depth=baseline*fx/disparity
+                 */
                 mvDepth[iL]=mbf/disparity;   // 深度
                 mvuRight[iL] = bestuR;       // 匹配对在右图的横坐标
                 vDistIdx.push_back(pair<int,int>(bestDist,iL)); // 该特征点SAD匹配最小匹配偏差
             }// 最后判断视差是否在范围内
         }//如果刚才匹配过程中的最佳描述子距离小于给定的阈值
+        
     }//遍历左图中的特征点 
 
     /** </ul> */
 
     // 步骤3：剔除SAD匹配偏差较大的匹配特征点
-    // 前面SAD匹配只判断滑动窗口中是否有局部最小值，这里通过对比剔除SAD匹配偏差比较大的特征点的深度
-    sort(vDistIdx.begin(),vDistIdx.end()); // 根据所有匹配对的SAD偏差进行排序, 距离由小到大
-	//找到中位数
+    /** <li> <b>关键步骤三</b> 剔除SAD匹配偏差较大的匹配特征点  </li> 
+     * \n 前面SAD匹配只判断滑动窗口中是否有局部最小值，这里通过对比剔除SAD匹配偏差比较大的特征点的深度
+     * <ul> */
+    /** <li> 根据所有匹配对的SAD偏差进行排序, 描述子距离由小到大 ,并且找到距离的中位数 median 并且计算距离阈值:</li>
+     * \n thDist = 1.5f*1.4f*median 
+     * \n 但是为什么选择 1.5 1.4 这两个数,不太明白
+     */
+    sort(vDistIdx.begin(),vDistIdx.end());
     const float median = vDistIdx[vDistIdx.size()/2].first;
 	//TODO 这里的数为什么是1.5 和 1.4？自己定的吗
     const float thDist = 1.5f*1.4f*median; // 计算自适应距离, 大于此距离的匹配对将剔除
@@ -1343,7 +1400,10 @@ void Frame::ComputeStereoMatches()
     //然后就是遍历成功进行SAD过程的左图特征点的“SAD匹配最小匹配偏差”了
     for(int i=vDistIdx.size()-1;i>=0;i--)
     {
-		//判断是否符合要求
+        /** <li> 遍历所有的成功进行SAD匹配的特征点,判断这对特征点的描述子距离之差是否符合要求. </li> 
+         * \n 只保留符合这个阈值的点.
+         * \n 其实这个过程也可以看成是保留描述子距离较小的匹配点.那些比较大的就扔掉,这样的一个过程
+        */
         if(vDistIdx[i].first<thDist)
 			//符合，过
             break;
@@ -1354,14 +1414,16 @@ void Frame::ComputeStereoMatches()
             mvDepth[vDistIdx[i].second]=-1;
         }//判断是否符合要求
     }//遍历成功进行SAD过程的左图特征点的“SAD匹配最小匹配偏差”了
-
+    /** </ul> */
+    /** <li> 最终得到了比较靠谱的左右目的特征点匹配关系. </li> */
     /** </ul> */
 }
 
 //计算RGBD图像的立体深度信息
 void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)	//参数是深度图像
 {
-    // mvDepth直接由depth图像读取
+    /** 主要步骤如下:.对于彩色图像中的每一个特征点:<ul>  */
+    // mvDepth直接由depth图像读取`
 	//这里是初始化这两个存储“右图”匹配特征点横坐标和存储特征点深度值的vector
     mvuRight = vector<float>(N,-1);
     mvDepth = vector<float>(N,-1);
@@ -1369,9 +1431,8 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)	//参数是深度图�
 	//开始遍历彩色图像中的所有特征点
     for(int i=0; i<N; i++)
     {
+        /** <li> 从<b>未矫正的特征点</b>提供的坐标来读取深度图像拿到这个点的深度数据 </li> */
 		//获取校正前和校正后的特征点
-		//TODO 这里为什么要采集这两种呢？
-		//TODO 还有，RGBD的深度图像也要进行去畸变处理？
         const cv::KeyPoint &kp = mvKeys[i];
         const cv::KeyPoint &kpU = mvKeysUn[i];
 
@@ -1379,41 +1440,47 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)	//参数是深度图�
         const float &v = kp.pt.y;
         const float &u = kp.pt.x;
 		//从深度图像中获取这个特征点对应的深度点
+        //NOTE 从这里看对深度图像进行去畸变处理是没有必要的,我们依旧可以直接通过未矫正的特征点的坐标来直接拿到深度数据
         const float d = imDepth.at<float>(v,u);
 
-		//如果获取到的深度点合法
+		//
+        /** <li> 如果获取到的深度点合法(d>0), 那么就保存这个特征点的深度,并且计算出等效的\在假想的右图中该特征点所匹配的特征点的横坐标 </li>
+         * \n 这个横坐标的计算是 x-mbf/d
+         * \n 其中的x使用的是<b>矫正后的</b>特征点的图像坐标
+         */
         if(d>0)
         {
 			//那么就保存这个点的深度
             mvDepth[i] = d;
 			//根据这个点的深度计算出等效的、在假想的右图中的该特征点的横坐标
-			//TODO 话说为什么要计算这个嘞，可能是为了保持计算一致
+			//TODO 话说为什么要计算这个嘞，计算出来之后有什么用?可能是为了保持计算一致
             mvuRight[i] = kpU.pt.x-mbf/d;
         }//如果获取到的深度点合法
     }//开始遍历彩色图像中的所有特征点
+    /** </ul> */
 }
 
-/**
- * @brief Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
- * @param  i 第i个keypoint
- * @return   3D点（相对于世界坐标系）
- */
+//当某个特征点的深度信息或者双目信息有效时,将它反投影到三维世界坐标系中
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
     // KeyFrame::UnprojectStereo 
-	//貌似这里普通帧的反投影函数操作过程和关键帧的反投影函数操作过程有一些不同：
+	// 貌似这里普通帧的反投影函数操作过程和关键帧的反投影函数操作过程有一些不同：
     // mvDepth是在ComputeStereoMatches函数中求取的
-	//TODO 验证下面的这些内容
+	// TODO 验证下面的这些内容. 虽然现在我感觉是理解错了,但是不确定;如果确定是真的理解错了,那么就删除下面的内容
     // mvDepth对应的校正前的特征点，可这里却是对校正后特征点反投影
     // KeyFrame::UnprojectStereo中是对校正前的特征点mvKeys反投影
     // 在ComputeStereoMatches函数中应该对校正后的特征点求深度？？ (wubo???)
 	// NOTE 不过我记得好像上面的ComputeStereoMatches函数就是对于双目相机设计的，而双目相机的图像默认都是经过了校正的啊
 
-	//获取这个特征点的深度（这里的深度可能是通过双目视差得出的，也可能是直接通过深度图像的出来的）
+    /** 步骤如下: <ul> */
+
+    /** <li> 获取这个特征点的深度（这里的深度可能是通过双目视差得出的，也可能是直接通过深度图像的出来的） </li> */
 	const float z = mvDepth[i];
-	//如果这个深度是合法的（其实这里也可以不再进行判断，因为在计算或者生成这个深度的时候都是经过检查了的）
+    /** <li> 判断这个深度是否合法 </li> <ul> */
+	//（其实这里也可以不再进行判断，因为在计算或者生成这个深度的时候都是经过检查了的_不行,RGBD的不是）
     if(z>0)
     {
+        /** <li> 如果合法,就利用<b></b>矫正后的特征点的坐标 Frame::mvKeysUn 和相机的内参数,通过反投影和位姿变换得到空间点的坐标 </li> */
 		//获取像素坐标，注意这里是矫正后的特征点的坐标
         const float u = mvKeysUn[i].pt.x;
         const float v = mvKeysUn[i].pt.y;
@@ -1426,8 +1493,10 @@ cv::Mat Frame::UnprojectStereo(const int &i)
         return mRwc*x3Dc+mOw;
     }
     else
-		//如果深度值不合法，那么就返回一个空矩阵
+        /** <li> 如果深度值不合法，那么就返回一个空矩阵,表示计算失败 </li> */
         return cv::Mat();
+    /** </ul> */
+    /** </ul> */
 }
 
 } //namespace ORB_SLAM

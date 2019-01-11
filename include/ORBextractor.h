@@ -102,6 +102,7 @@ public:
     void operator()( 
 				cv::InputArray image, 					//要操作的图像
 				cv::InputArray mask,					//图像掩膜，辅助进行图片处理，可以参考[https://www.cnblogs.com/skyfsm/p/6894685.html]
+                                                        //但是感觉并没有什么作用
 				std::vector<cv::KeyPoint>& keypoints,	//保存提取出来的特征点的向量
 				cv::OutputArray descriptors);			//输出用的保存特征点描述子的cv::Mat
 

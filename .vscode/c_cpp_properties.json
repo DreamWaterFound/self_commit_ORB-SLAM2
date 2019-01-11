@@ -3,7 +3,7 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}/**",
+                S"${workspaceFolder}/**",
                 "${workspaceFolder}/include",
                 "/home/guoqing/libraries/eigen_333/include",
                 "/home/guoqing/libraries/eigen_333/include/eigen3",
