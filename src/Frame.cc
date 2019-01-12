@@ -1032,7 +1032,7 @@ void Frame::ComputeStereoMatches()
     mvDepth = vector<float>(N,-1.0f);		//以及这对特征点的深度估计
 
     /** <li> 1. 按下式计算ORB距离的阈值。如果匹配的ORB特征点描述子的距离大于这个阈值，我们就认为是错误的匹配 </li> 
-     * \n \f$ distance = (1/2)\cdot (TH_HIGH+TH_LOW) \f$
+     * \n \f$ distance = (1/2)\cdot (TH_{HIGH}+TH_{LOW}) \f$
      * \n 其中两个阈值分别为 ORBmatcher::TH_HIGH 和 ORBmatcher::TH_LOW 
      * \n 这个阈值在下面进行双目特征点匹配的时候会用到。只有得出的初步匹配的特征点的描述子距离小于这个阈值的时候，我们才能够认为这对匹配是
      * 正确的匹配，我们才能够进行下一步的SAD算法的操作。
@@ -1332,7 +1332,7 @@ void Frame::ComputeStereoMatches()
 
             /** <li> 这里可以设抛物线是y=ax^2+bx+c，将三个点代入，求deltaR=-b/2a+x2即可得出亚像素修正量 deltaR </li> 
              * 程序中的计算公式为:
-             * \n /f$ /frac{d_1-d_3}{2(d_1+d_3-2d_2}  /f$
+             * \n \f$ \Delta R=\frac{d_1-d_3}{2(d_1+d_3-2d_2)}  \f$
              * \n 公式的相关推导可以看图:
              * <img src="../imgs/2.png"/>
              * <img src="../imgs/3.png"/>

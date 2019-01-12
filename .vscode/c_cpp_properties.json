@@ -3,7 +3,7 @@
         {
             "name": "Linux",
             "includePath": [
-                S"${workspaceFolder}/**",
+                "${workspaceFolder}/**",
                 "${workspaceFolder}/include",
                 "/home/guoqing/libraries/eigen_333/include",
                 "/home/guoqing/libraries/eigen_333/include/eigen3",
@@ -13,7 +13,8 @@
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c11",
             "cppStandard": "c++17",
-            "intelliSenseMode": "clang-x64"
+            "intelliSenseMode": "clang-x64",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
         }
     ],
     "version": 4

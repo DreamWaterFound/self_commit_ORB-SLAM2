@@ -612,13 +612,17 @@ cv::Mat Initializer::ComputeF21(
     /** </ul> */
 }//计算基础矩阵
 
-//对给定的homography matrix打分
+//对给定的homography matrix打分,需要使用到卡方检验的知识
 float Initializer::CheckHomography(
     const cv::Mat &H21,                 //从参考帧到当前帧的单应矩阵
     const cv::Mat &H12,                 //从当前帧到参考帧的单应矩阵
     vector<bool> &vbMatchesInliers,     //匹配好的特征点对的Inliers标记
     float sigma)                        //估计误差
 {
+    /** 对单应矩阵打分来实现RANSAC的过程,需要用到卡方检验的知识.
+     * \n 思路有些相似但是又有一些不同:
+     * @see Initializer::CheckFundamental()
+     * \n 操作步骤如下:<ul> */
 	//获取特征点对的总大小
     const int N = mvMatches12.size();
 
@@ -662,24 +666,40 @@ float Initializer::CheckHomography(
 
     //信息矩阵，方差平方的倒数
 	//TODO 还不明白为什么泡泡机器人给出的注释说下面的这个是信息矩阵
-	//NOTE 不是有一个类成员变量mSigma2吗。。。为什么不直接用那个呢——我猜是程序员忘记了
+	//NOTE 不是有一个类成员变量 mSigma2 吗。。。为什么不直接用那个呢——我猜是程序员忘记了
     const float invSigmaSquare = 1.0/(sigma*sigma);
 
     // N对特征匹配点
+    /** <li> 对于两帧上所有的匹配的特征点对展开遍历.对于具体地某对特征点,进行下面的操作: </li> <ul>*/
     for(int i=0; i<N; i++)
     {
 		//一开始都默认为Inlier
         bool bIn = true;
 
+         /** <li> 根据索引获取这对匹配特征点的坐标. </li> 
+         * \n 记为:
+         * \n \f$ (u_1,v_1),(u_2,v_2)  \f$
+         * \n 分别为来自参考帧的特征点坐标和来自当前帧的特征点坐标
+        */
 		//根据索引获取这一对特征点
         const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
         const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
-
 		//提取特征点的坐标
         const float u1 = kp1.pt.x;
         const float v1 = kp1.pt.y;
         const float u2 = kp2.pt.x;
         const float v2 = kp2.pt.y;
+
+       
+        /** <li> 进行反投影操作. </li> 
+         * \n 根据是这样的,从单应矩阵的定义;
+         * \n \f$ \begin{bmatrix} u_1\\v_1\\1 \end{bmatrix} = \begin{bmatrix} h_1&h_2&h_3\\ h_4&h_5&h_6\\
+         * h_7&h_8&h_9 \end{bmatrix} \begin{bmatrix} u_2\\v_2\\1 \end{bmatrix}  \f$
+         * \n 可以得到,点 \f$ [u_2,v_2,1]^{\text{T}}  \f$ 在参考帧(1)上的重投影点 \f$  [u'_1,v'_1,1]^{\text{T}} \f$ :
+         * \n \f$ \begin{bmatrix} u'_1\\v'_1\\1 \end{bmatrix} =
+         *        \begin{bmatrix} h_1&h_2&h_3\\ h_4&h_5&h_6\\ h_7&h_8&h_9 \end{bmatrix}^{-1}
+         *        \begin{bmatrix} u_2\\v_2\\1 \end{bmatrix}  \f$
+         */
 
         // Reprojection error in first image
         // x2in1 = H12*x2
@@ -693,24 +713,49 @@ float Initializer::CheckHomography(
         const float u2in1 = (h11inv*u2+h12inv*v2+h13inv)*w2in1inv;	//u2_in_image_1
         const float v2in1 = (h21inv*u2+h22inv*v2+h23inv)*w2in1inv;	//v2_in_image_1
 
-        // 计算重投影误差
+        /** <li> 计算重投影误差 </li> 
+         * \n 重投影误差定义:
+         * \n \f$ {\Delta_{1 \leftarrow 2}} ^2=(u_1-u'_1)^2+(v1-v'_1)^2 \f$
+         */
+
         const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);
 
-        // 根据方差归一化误差
-		//这里的误差只有归一化之后，后面的RANSAC评分在不同点和不同的矩阵（主要是这个）中的比较才会有意义
+        /** <li> 根据测量误差计算归一化误差 </li> 
+         * 这里的误差只有归一化之后，后面的RANSAC评分在不同点和不同的矩阵（主要是这个）中的比较才会有意义. 公式:
+         * \n \f$  e_{1\leftarrow2}^2=\frac{\Delta_{1\leftarrow2}^2}{\sigma^2} \f$
+         * \n todo 需要搞明白的就是,这里使用卡方分布的时候,为什么分母是 \f$ \sigma^2 \f$ ?
+        */
         const float chiSquare1 = squareDist1*invSigmaSquare;
 
 		//如果这个点的归一化后的重投影误差超过了给定的阈值
-		//其实就是如果这个误差的平方和超过了阈值后说明观测的点的误差有95%的概率不符合正态分布
+		//
+        /** <li> 判断这个归一化误差是否超过了阈值 5.991 </li> 
+         * \n 其实就是如果这个误差的平方和超过了卡方阈值 5.991 后,说明观测的点的误差有95%的概率不符合正态分布.
+         * \n 关于卡方分布,是类似于这样的一个东西:
+         * \n \f$ \mathcal{X}(v,x)=\sum_{i=1}^{v}x_i^2  \f$
+         * \n 其中 \f$  x \f$ 是满足某个正态分布的随机变量, \f$ v \f$ 是自由度,即有几个这样的自变量加和.
+         * \n 而注意到上面的归一化重投影误差中,一共有两项的平方和的形式;如果我们认为每个坐标上点的重投影误差都服从正态分布,那么上式的
+         * 归一化重投影误差就组成了一个自由度为2的卡方分布表达形式. 而根据卡方分布表,当自由度为2时,如果这个和小于5.991才能够认为"在"
+         * 每个坐标的点的重投影误差"才有超过95%的概率符合正态分布,也就是可以理解为这个时候才会有超过95%的概率是正确的.
+         * <ul>
+        */
         if(chiSquare1>th)
 			//那么说明就是Outliers
+            /** <li> 如果超过这个阈值,说明这个点不符合我们的假设,将它标记为外点  </li> */
             bIn = false;
         else
-			//在阈值内才算是Inliers，保持默认设置不变；然后累计对当前使用的单应矩阵的RANSAC评分
-			//因为在卡方检验中，那个和越小说明数据越符合正态分布，因此用th-来取反，这样数据越好score越大
+            /** <li> 在阈值内才算是Inliers. 然后将当前点的 RANSAC 评分累加. </li> 
+             * 这里使用的 RANSAC 评分定义为 "阈值-归一化方差", 如果这个归一化方差越小, 那么离阈值也就越小, 也就说明它所对应的一对特征点
+             * 有更大的概率满足我们前面的高斯分布假设,因此这个点的 RANSAC 评分也就越高.
+            */
             score += th - chiSquare1;
+        /** </ul> */
 		
-		//为了使这个计算能够比较好地反应矩阵的实际计算效果，因此这里还要再反方向进行一次重投影误差的计算
+        /** <li> 为了使这个计算能够比较好地反应矩阵的实际计算效果，因此这里还要再反方向进行一次重投影误差的计算 </li> 
+         * \n \f$ \begin{bmatrix} u_1\\v_1\\1 \end{bmatrix} = 
+         *        \begin{bmatrix} h_1&h_2&h_3\\ h_4&h_5&h_6\\ h_7&h_8&h_9 \end{bmatrix}
+         *        \begin{bmatrix} u'_2\\v'_2\\1 \end{bmatrix}  \f$
+        */
         // Reprojection error in second image
         // x1in2 = H21*x1
         // 将图像1中的特征点单应到图像2中
@@ -720,12 +765,11 @@ float Initializer::CheckHomography(
         const float u1in2 = (h11*u1+h12*v1+h13)*w1in2inv;
         const float v1in2 = (h21*u1+h22*v1+h23)*w1in2inv;
 
-		//计算重投影误差
+        /** <li> 计算重投影误差,并且归一化,判断是否满足卡方分布假设,计算RANSAC评分,和前面一样 </li>
+         * \n 注意这里也是要将这个重投影的 RANSAC 评分累加的
+         */
         const float squareDist2 = (u2-u1in2)*(u2-u1in2)+(v2-v1in2)*(v2-v1in2);
-
-		//重投影误差的归一化
         const float chiSquare2 = squareDist2*invSigmaSquare;
-
 		//比较归一化后的重投影误差是否大于阈值
         if(chiSquare2>th)
 			//大于阈值说明是Outlier
@@ -734,24 +778,30 @@ float Initializer::CheckHomography(
 			//反之则是Inlier，保持标志不变；同时累计评分
             score += th - chiSquare2;
 
-		//注意，只有两个点都是Inlier才会认为这对匹配关系是Inlier;
-		//只要有一个特征点是Outlier那么就认为这对特征点的匹配关系是Outlier
+        /** <li> 得出一个点是否为 inlier 的判断. </li> 
+         * \n 注意，只有两种重投影下,这对特征点都是Inlier才会认为这对匹配关系是Inlier; 只要有一个特征点是Outlier那么就认为这对特征点的匹配关系是Outlier
+        */
         if(bIn)
             vbMatchesInliers[i]=true;
         else
             vbMatchesInliers[i]=false;
     }//对于每对匹配好的特征点
+    /** </ul> */
 
     //返回当前给出的单应矩阵的评分
     return score;
+    /** </ul> */
 }//计算给出的单应矩阵的RANSAC评分
 
 //对给定的fundamental matrix打分
+// @see Initializer::CheckHomography() 
 float Initializer::CheckFundamental(
     const cv::Mat &F21,             //从当前帧到参考帧的基础矩阵
     vector<bool> &vbMatchesInliers, //匹配的特征点对属于inliers的标记
     float sigma)                    //估计误差
 {
+    /** 对给定的基础进行 RANSAC 评分. 基本的想法和 Initializer::CheckHomography() 类似. */
+
 	//获取匹配的特征点对的总对数
     const int N = mvMatches12.size();
 
@@ -781,12 +831,14 @@ float Initializer::CheckFundamental(
 	//计算这个逆，后面计算卡方的时候会用到
     const float invSigmaSquare = 1.0/(sigma*sigma);
 
-	//对于每一对匹配的特征点对
+
+    /** 对于每一对匹配的特征点对,具体的步骤如下: <ul> */
     for(int i=0; i<N; i++)
     {
 		//默认为这对特征点是Inliers
         bool bIn = true;
 
+        /** <li>  根据索引拿到这对匹配的特征点 </li> */
 		//从匹配关系中获得索引并且拿到特点数据
         const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
         const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
@@ -798,6 +850,22 @@ float Initializer::CheckFundamental(
         const float v2 = kp2.pt.y;
 
         // Reprojection error in second image
+        /** <li> 计算重投影误差.但是注意由于基础矩阵的定义形式: </li>
+         * \n  \f$  \mathbf{x}'\mathbf{F}\mathbf{x}=0 \f$
+         * \n 这导致它不能够像单应矩阵那个样子经过求逆直接得到点,这里是可以得到一条线. 
+         * 记 \f$ [u_1,v_1,1]^{\text{T}}  \f$ 为在参考帧上的点, \f$  [u_2,v_2,1]^{\text{T}} \f$ 为匹配的在当前帧上的特征点, 那么从当前帧(2)
+         * 到参考帧(1)的重投影产生的直线 \f$ \mathbf{l}_2  \f$ 可以按照下式计算出来:
+         * \n \f$ \mathbf{l}_2= \begin{bmatrix} a_2\\b_2\\c_2 \end{bmatrix} =
+         *    \begin{bmatrix} f_1&f_2&f_3\\ f_4&f_5&f_6\\ f_7&f_8&f_9 \end{bmatrix}^{-1}
+         *    \begin{bmatrix} u_2\\v_2\\1 \end{bmatrix}  \f$
+         * 其中 \f$  [a_2,b_2,1]^{\text{T}} \f$ 是直线 \f$ \mathbf{l}_2  \f$ 的参数. 
+         * 在理想状态下, 点 \f$ [u_1,v_1,1]^{\text{T}} \f$ 应该完全在直线 \f$ \mathbf{l}_2 \f$ 上.
+         * 这里的重投影误差定义的就是,原真实特征点 \f$ [u_1,v_1,1]^{\text{T}} \f$ 到根据基础矩阵反投影得到的直线 \f$ \mathbf{l}_2 \f$的距离:
+         * \n \f$ \\Delta_{1\leftarrow2} ^2= \frac{(a_2u_1+b_2v_1+c_2)^2}{(a_2^2+b_2^2)} \f$
+         * \n  同样地,也要和计算单应矩阵的评分一样,计算归一化误差:
+         * \n \f$  e_{1\leftarrow2}^2=\frac{ \Delta_{1\leftarrow2} ^2}{\sigma^2} \f$
+         */
+
         // l2=F21x1=(a2,b2,c2)
         // F21x1可以算出x1在图像中x2对应的线l
 		//将参考帧中的特征点以给出的基础矩阵投影到当前帧上，下面的计算完完全全就是矩阵计算的展开
@@ -805,53 +873,51 @@ float Initializer::CheckFundamental(
 		const float a2 = f11*u1+f12*v1+f13;
         const float b2 = f21*u1+f22*v1+f23;
         const float c2 = f31*u1+f32*v1+f33;
-
-		
         //理想状态下：x2应该在l这条线上:x2点乘l = 0 
 		//计算点到直线距离，这里是分子
         const float num2 = a2*u2+b2*v2+c2;
-
 		//计算重投影误差，这里的重投影误差其实是这样子定义的
 		//注意这里计算的只有一个平方项
         const float squareDist1 = num2*num2/(a2*a2+b2*b2); // 点到线的几何距离 的平方
-
 		//归一化误差
         const float chiSquare1 = squareDist1*invSigmaSquare;
 		
-		//判断归一化误差是否大于阈值
-		//因为上面计算的只有一个平方项，所以这里的阈值也是选择的服从自由度为1的卡方分布的0.95的阈值
+        /** <li> 判断归一化误差是否大于阈值 3.841 </li> 
+         * 因为上面计算的只有一个平方项，所以这里的阈值也是选择的服从自由度为1的卡方分布的0.95的阈值 
+         * <ul>
+        */
         if(chiSquare1>th)
-			//大于就说明这个点是Outlier
+			//大于就说明这个点是Outlier 
+            /** <li> 如果大于阈值,认为这对点是 outlier </li> */
             bIn = false;
         else
-			//只有小于的时候才认为是Inlier，然后累计对当前使用的基础矩阵的RANSAC评分
-			//不过在这里累加的时候使用的阈值还是自由度为2的那个卡方的阈值
-			//这样最终计算的结果会使得基础矩阵的比单应矩阵的高（因为前面的那个阈值小）
+            /** <li> 只有小于阈值的时候才认为是Inlier，然后累计对当前使用的基础矩阵的RANSAC评分 </li> 
+             * 不过在这里累加的时候使用的阈值还是自由度为2的那个卡方的阈值, 目测是只有这样,
+             * 最终计算的结果会使得基础矩阵的比单应矩阵的高（因为前面的那个阈值小）;或者是使得两者具有相同的可比性
+             */ 
             score += thScore - chiSquare1;
+        /** </ul> */
 
+        /** <li> 然后从参考帧到当前帧也进行一次这样的重投影误差的计算,并且进行阈值的判断和RANSAC得分的计算和累加 </li> */
         // Reprojection error in second image
         // l1 =x2tF21=(a1,b1,c1)
 		//然后反过来进行相同操作，求解直线
         const float a1 = f11*u2+f21*v2+f31;
         const float b1 = f12*u2+f22*v2+f32;
         const float c1 = f13*u2+f23*v2+f33;
-
 		//计算分子
         const float num1 = a1*u1+b1*v1+c1;
-
 		//计算重投影误差
         const float squareDist2 = num1*num1/(a1*a1+b1*b1);
-
 		//归一化
         const float chiSquare2 = squareDist2*invSigmaSquare;
-
 		//判断阈值
         if(chiSquare2>th)
             bIn = false;
         else
             score += thScore - chiSquare2;
 
-		//然后就是对点的标记处理
+        /** <li> 然后就是对点的标记处理, 只有在两次重投影中都被标记为 inlire , 这个才是最终的 inlier</li> */
         if(bIn)
             vbMatchesInliers[i]=true;
         else
@@ -860,6 +926,7 @@ float Initializer::CheckFundamental(
 
     //返回评分
     return score;
+    /** </ul> */
 }
 
 
