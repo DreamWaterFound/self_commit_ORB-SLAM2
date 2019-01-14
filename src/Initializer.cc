@@ -1144,6 +1144,7 @@ bool Initializer::ReconstructH(
     */
 
     /** <li> 统计匹配的特征点对中属于Inlier的个数 </li> */
+    //HERE
     int N=0;
 	//遍历
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
