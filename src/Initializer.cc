@@ -620,6 +620,14 @@ float Initializer::CheckHomography(
     float sigma)                        //估计误差
 {
     /** 对单应矩阵打分来实现RANSAC的过程,需要用到卡方检验的知识.
+     * \n 评分的计算公式:
+     * \n \f$ source(\mathbf{H}) = \sum_{i=0}^N \begin{bmatrix}
+     * \rho (T_H-\begin{Vmatrix} \mathbf{x}'-\mathbf{H}\mathbf{x} \end{Vmatrix}^2/\sigma^2) +
+     * \rho (T_H-\begin{Vmatrix} \mathbf{x}-\mathbf{H}\mathbf{x}' \end{Vmatrix}^2/\sigma^2) 
+     * \end{bmatrix} \f$
+     * \n 其中:
+     * \n \f$ \rho= \begin{cases} 0,&x\leq0\\ x,&else \end{cases} \f$
+     * \n \f$ T_H \f$ 是阈值. 公式的原理将会在下面加以详细介绍.
      * \n 思路有些相似但是又有一些不同:
      * @see Initializer::CheckFundamental()
      * \n 操作步骤如下:<ul> */
@@ -699,6 +707,9 @@ float Initializer::CheckHomography(
          * \n \f$ \begin{bmatrix} u'_1\\v'_1\\1 \end{bmatrix} =
          *        \begin{bmatrix} h_1&h_2&h_3\\ h_4&h_5&h_6\\ h_7&h_8&h_9 \end{bmatrix}^{-1}
          *        \begin{bmatrix} u_2\\v_2\\1 \end{bmatrix}  \f$
+         * \n 而对称转移误差的形式为:
+         * \n \f$  d(x,H^{-1}x'^2)+d(x',H^{-1}x^2) \f$
+         * \n 下面开始计算第一个部分
          */
 
         // Reprojection error in first image
@@ -713,8 +724,8 @@ float Initializer::CheckHomography(
         const float u2in1 = (h11inv*u2+h12inv*v2+h13inv)*w2in1inv;	//u2_in_image_1
         const float v2in1 = (h21inv*u2+h22inv*v2+h23inv)*w2in1inv;	//v2_in_image_1
 
-        /** <li> 计算重投影误差 </li> 
-         * \n 重投影误差定义:
+        /** <li> 计算对称转移误差的第一个部分 </li> 
+         * \n 误差定义:
          * \n \f$ {\Delta_{1 \leftarrow 2}} ^2=(u_1-u'_1)^2+(v1-v'_1)^2 \f$
          */
 
@@ -734,9 +745,9 @@ float Initializer::CheckHomography(
          * \n 关于卡方分布,是类似于这样的一个东西:
          * \n \f$ \mathcal{X}(v,x)=\sum_{i=1}^{v}x_i^2  \f$
          * \n 其中 \f$  x \f$ 是满足某个正态分布的随机变量, \f$ v \f$ 是自由度,即有几个这样的自变量加和.
-         * \n 而注意到上面的归一化重投影误差中,一共有两项的平方和的形式;如果我们认为每个坐标上点的重投影误差都服从正态分布,那么上式的
-         * 归一化重投影误差就组成了一个自由度为2的卡方分布表达形式. 而根据卡方分布表,当自由度为2时,如果这个和小于5.991才能够认为"在"
-         * 每个坐标的点的重投影误差"才有超过95%的概率符合正态分布,也就是可以理解为这个时候才会有超过95%的概率是正确的.
+         * \n 而注意到上面的归一化对称转移误差中,一共有两项的平方和的形式;如果我们认为每个坐标上点的对称转移误差都服从正态分布,那么上式的
+         * 归一化对称转移误差就组成了一个自由度为2的卡方分布表达形式. 而根据卡方分布表,当自由度为2时,如果这个和小于5.991才能够认为"在"
+         * 每个坐标的点的对称转移误差"才有超过95%的概率符合正态分布,也就是可以理解为这个时候才会有超过95%的概率是正确的.
          * <ul>
         */
         if(chiSquare1>th)
@@ -751,7 +762,7 @@ float Initializer::CheckHomography(
             score += th - chiSquare1;
         /** </ul> */
 		
-        /** <li> 为了使这个计算能够比较好地反应矩阵的实际计算效果，因此这里还要再反方向进行一次重投影误差的计算 </li> 
+        /** <li> 计算对称转移误差的另外一个部分 </li> 
          * \n \f$ \begin{bmatrix} u_1\\v_1\\1 \end{bmatrix} = 
          *        \begin{bmatrix} h_1&h_2&h_3\\ h_4&h_5&h_6\\ h_7&h_8&h_9 \end{bmatrix}
          *        \begin{bmatrix} u'_2\\v'_2\\1 \end{bmatrix}  \f$
@@ -765,12 +776,12 @@ float Initializer::CheckHomography(
         const float u1in2 = (h11*u1+h12*v1+h13)*w1in2inv;
         const float v1in2 = (h21*u1+h22*v1+h23)*w1in2inv;
 
-        /** <li> 计算重投影误差,并且归一化,判断是否满足卡方分布假设,计算RANSAC评分,和前面一样 </li>
-         * \n 注意这里也是要将这个重投影的 RANSAC 评分累加的
+        /** <li> 计算对称转移误差的另外一个部分,并且归一化,判断是否满足卡方分布假设,计算RANSAC评分,和前面一样 </li>
+         * \n 注意这里也是要将这个的 RANSAC 评分累加的
          */
         const float squareDist2 = (u2-u1in2)*(u2-u1in2)+(v2-v1in2)*(v2-v1in2);
         const float chiSquare2 = squareDist2*invSigmaSquare;
-		//比较归一化后的重投影误差是否大于阈值
+		//比较归一化后的误差是否大于阈值
         if(chiSquare2>th)
 			//大于阈值说明是Outlier
             bIn = false;
@@ -858,7 +869,7 @@ float Initializer::CheckFundamental(
          * \n \f$ \mathbf{l}_2= \begin{bmatrix} a_2\\b_2\\c_2 \end{bmatrix} =
          *    \begin{bmatrix} f_1&f_2&f_3\\ f_4&f_5&f_6\\ f_7&f_8&f_9 \end{bmatrix}^{-1}
          *    \begin{bmatrix} u_2\\v_2\\1 \end{bmatrix}  \f$
-         * 其中 \f$  [a_2,b_2,1]^{\text{T}} \f$ 是直线 \f$ \mathbf{l}_2  \f$ 的参数. 
+         * \n 其中 \f$  [a_2,b_2,1]^{\text{T}} \f$ 是直线 \f$ \mathbf{l}_2  \f$ 的参数. 
          * 在理想状态下, 点 \f$ [u_1,v_1,1]^{\text{T}} \f$ 应该完全在直线 \f$ \mathbf{l}_2 \f$ 上.
          * 这里的重投影误差定义的就是,原真实特征点 \f$ [u_1,v_1,1]^{\text{T}} \f$ 到根据基础矩阵反投影得到的直线 \f$ \mathbf{l}_2 \f$的距离:
          * \n \f$ \\Delta_{1\leftarrow2} ^2= \frac{(a_2u_1+b_2v_1+c_2)^2}{(a_2^2+b_2^2)} \f$
@@ -949,7 +960,22 @@ bool Initializer::ReconstructF(
     float minParallax,              //认为三角化测量有效的最小视差角
     int minTriangulated)            //认为使用三角化测量进行数据判断的最小测量点数量
 {
-	//计数器，统计被标记为Inlier的特征点对数
+	/** 这里计算基础矩阵的分解:(下面公式的推导来自于吴博师兄的PPT,在工程文件夹下面)
+	 * \n \f$ \mathbf{E}=\mathbf{K}^{\text{T}}\mathbf{F}\mathbf{K}  \f$
+     * \n 其中 \f$ \mathbf{K} \f$ 是相机的内参数矩阵. 对于基础矩阵 \f$ \mathbf{B} \f$ ,我们可以对其进行SVD分解:
+     * \n \f$  \mathbf{E}=\mathbf{U}\mathbf{\Sigma}\mathbf{V}^{\text{T}} \f$
+     * \n 令:
+     * \n \f$ \mathbf{W}=\mathbf{R}_z(\frac{\pi}{2})= \begin{bmatrix} 0&-1&0\\ 1&0&0\\ 0&0&1 \end{bmatrix}  \f$
+     * \n 那么我们可以直接利用结论:
+     * \n \f$ \mathbf{E}=[\mathbf{R}|\mathbf{T}]= \begin{cases}
+     * \mathbf{R}_1=\mathbf{U}\mathbf{W}\mathbf{V}^{\text{T}}\\ \mathbf{R}_2=\mathbf{U}\mathbf{W}^{\text{T}}\mathbf{V}^{\text{T}}\\
+     * \mathbf{T}_1=\mathbf{U}_3\\ \mathbf{T}_2=-\mathbf{U}_3 \end{cases}  \f$
+     * \n 一共组成了四种情况. 这个程序的基本操作方法是,统计这四个模型中3D点在摄像头前方投影误差小于给定阈值的3D点个数和每个模型下较大的视察叫;如果其中一个模型的
+     * 视差角大于阈值,并且满足条件的3D点明显大于其他模型,那么这个模型就是最优的选择.
+     * \n 详细的操作步骤如下: <ul>
+	 */ 
+    
+    /** <li> 统计被标记为Inlier的特征点对数 </li> */
     int N=0;
 	//开始遍历
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -959,22 +985,21 @@ bool Initializer::ReconstructF(
             N++;
 
     // Compute Essential Matrix from Fundamental Matrix
-	//根据基础矩阵和相机的内参数矩阵计算本质矩阵
+    /** <li> 根据基础矩阵和相机的内参数矩阵计算本质矩阵 </li> */
     cv::Mat E21 = K.t()*F21*K;
-
 	//emmm过会儿存放计算结果要用到的
     cv::Mat R1, R2, t;
-
     // Recover the 4 motion hypotheses
-    // 虽然这个函数对t有归一化，但并没有决定单目整个SLAM过程的尺度
-    // NOTICE 因为CreateInitialMapMonocular函数对3D点深度会缩放，然后反过来对 t 有改变
-	//调用自己建立的解析函数，求解两个R解和两个t解，不过由于两个t解互为相反数，因此这里先只获取一个
+    /** <li> 调用自己建立的解析函数 Initializer::DecomposeE()，从本质矩阵求解两个R解和两个t解，不过由于两个t解互为相反数，因此这里先只获取一个 </li> 
+     * \n 虽然这个函数对t有归一化，但并没有决定单目整个SLAM过程的尺度. 因为 CreateInitialMapMonocular 函数对3D点深度会缩放，然后反过来对 t 有改变.
+    */
     DecomposeE(E21,R1,R2,t);  
 	//这里计算另外一个t解
     cv::Mat t1=t;
     cv::Mat t2=-t;
 
     // Reconstruct with the 4 hyphoteses and check
+    /** <li> 根据计算的解组合成为四种情况,并依次调用 Initializer::CheckRT() 进行检查,得到可以进行三角化测量的点的数目 </li> */
 	//验证
 	//这四个向量对应着解的四种组合情况，分别清楚各自情况下三角化测量之后的特征点空间坐标
     vector<cv::Point3f> vP3D1, vP3D2, vP3D3, vP3D4;
@@ -996,22 +1021,20 @@ bool Initializer::ReconstructF(
     int nGood3 = CheckRT(R1,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D3, 4.0*mSigma2, vbTriangulated3, parallax3);
     int nGood4 = CheckRT(R2,t2,mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K, vP3D4, 4.0*mSigma2, vbTriangulated4, parallax4);
 
-	//选取最多的good点数
+    /** <li> 选取最大可三角化测量的点的数目  maxGood </li> */
     int maxGood = max(nGood1,max(nGood2,max(nGood3,nGood4)));
 
 	//清空函数的参数，我们要准备进行输出了
     R21 = cv::Mat();
     t21 = cv::Mat();
 
-    // minTriangulated为可以三角化恢复三维点的个数
-	//从这里可以看出minTriangulated变量应该是作为输入的变量
-	//然后。。。有这样一个认为应该选取的最少的good点的确定操作
+    /** <li> 确定最小的可以三角化的点数为 0.9倍的内点数. 如果给定的数目笔这个还大,就用大的. </li> */
     int nMinGood = max(static_cast<int>(0.9*N),minTriangulated);
 
 	//统计有多少组可行解的，这里暂时称之为“可行解计数变量”吧
     int nsimilar = 0;
 	
-	//如果在某种情况下观测到的3D点占到了绝大多数，那么“可行解计数”变量++
+    /** <li> 如果在某种情况下观测到的可三角化测量的点占到了绝大多数(>0.7maxGood)，那么“可行解计数”变量++ </li> */
     if(nGood1>0.7*maxGood)
         nsimilar++;
     if(nGood2>0.7*maxGood)
@@ -1022,7 +1045,7 @@ bool Initializer::ReconstructF(
         nsimilar++;
 
     // If there is not a clear winner or not enough triangulated points reject initialization
-    // 四个结果中如果没有明显的最优结果，则返回失败
+    /** <li> 四个结果中如果没有明显的最优结果或者没有足够数量的三角化点，则返回失败 </li> */
     if(maxGood<nMinGood ||		//如果最好的解中没有足够的good点
 		nsimilar>1)				//或者是存在两种及以上的解的good点都占了绝大多数，说明没有明显的最优结果
     {
@@ -1039,6 +1062,8 @@ bool Initializer::ReconstructF(
     //视差角会带来比较大的观测误差）；然后有函数入口有一个给定的最小值minParallax，如果很幸运某种解的good点占了大多数
     //（其实一般地也就是nGoodx==maxGood了），也要保证parallaxx>minParallax这个条件满足，才能够被认为是真正的解。
     
+    /** <li> 检查是否有足够大的视差角,只有具有足够大的视差角,才能够得到比较好的重建. </li> */
+
     //看看最好的good点是在哪种解的条件下发生的
     if(maxGood==nGood1)
     {
@@ -1091,9 +1116,10 @@ bool Initializer::ReconstructF(
             return true;
         }
     }
-
-    //如果有最优解但是不满足对应的parallax>minParallax，或者是其他的原因导致的无法求出相机R，t，那么返回false表示求解失败
+   
+    /** <li> 如果有最优解但是不满足对应的parallax>minParallax，或者是其他的原因导致的无法求出相机R，t，那么返回false表示求解失败 </li> */
     return false;
+    /** </ul> */
 }
 
 
@@ -1101,6 +1127,7 @@ bool Initializer::ReconstructF(
 // 参考文献：Motion and structure from motion in a piecewise plannar environment
 // 这篇参考文献和下面的代码使用了Faugeras SVD-based decomposition算法
 // 从H恢复R t
+/** @see Motion and structure from motion in a piecewise planar environment. International Journal of Pattern Recognition and Artificial Intelligence, 1988 */
 bool Initializer::ReconstructH(
     vector<bool> &vbMatchesInliers, //匹配点对的内点标记
     cv::Mat &H21,                   //从参考帧到当前帧的单应矩阵
@@ -1112,7 +1139,11 @@ bool Initializer::ReconstructH(
 	float minParallax,              //在进行三角化测量时，观测正常所允许的最小视差角
     int minTriangulated)            //最少被三角化的点对数（其实也是点个数）
 {
-	//匹配的特征点对中属于Inlier的个数
+    /** 这个函数从单应矩阵中恢复相机的的运动. 各种计算公式都是从上面的参考文献中导出的,原理复杂,不在介绍原因. 
+     * 计算过程如下: 
+    */
+
+    /** <li> 统计匹配的特征点对中属于Inlier的个数 </li> */
     int N=0;
 	//遍历
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -1129,6 +1160,9 @@ bool Initializer::ReconstructH(
     cv::Mat invK = K.inv();
 	//这个部分不要看PPT，对不太上，可以结合着视觉SLAM十四讲P146页中单应矩阵的推导来看 
 	//TODO  不过感觉最后还是缺少了一个因子d
+    /** <li> 计算矩阵A </li> 
+     * \n 
+    */
     cv::Mat A = invK*H21*K;
 
 	//存储进行奇异值分解的结果
@@ -1383,6 +1417,7 @@ bool Initializer::ReconstructH(
     }
 	//没有找到，返回false
     return false;
+    /** </ul> */
 }
 
 
