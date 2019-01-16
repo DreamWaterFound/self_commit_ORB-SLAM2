@@ -1248,7 +1248,7 @@ bool Initializer::ReconstructH(
         Rp.at<float>(2,0)=stheta[i];		
         Rp.at<float>(2,2)=ctheta;
 
-		//这里的变量定义和PPT中的不同，看原始论文：
+		//NOTICE 这里的变量定义和PPT中的不同，看原始论文：
 		//Motion and structure from motion in a piecewise planner environment
         cv::Mat R = s*U*Rp*Vt;
 		//将这个“真实”的R添加到相关的向量中
