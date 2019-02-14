@@ -197,7 +197,7 @@ private:
      * @details 通过三角化方法，利用反投影矩阵将特征点恢复为3D点
      * @param[in]   kp1 特征点, in reference frame
      * @param[in]   kp2 特征点, in current frame
-     * @param[in]   P1  投影矩阵P1
+     * @param[in]   P1  投影矩阵P1, 注意这里给的参数是投影矩阵
      * @param[in]   P2  投影矩阵P2
      * @param[out]  x3D 三维点
      * @see       Multiple View Geometry in Computer Vision - 12.2 Linear triangulation methods p312

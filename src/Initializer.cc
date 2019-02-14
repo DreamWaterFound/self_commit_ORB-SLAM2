@@ -1139,12 +1139,11 @@ bool Initializer::ReconstructH(
 	float minParallax,              //在进行三角化测量时，观测正常所允许的最小视差角
     int minTriangulated)            //最少被三角化的点对数（其实也是点个数）
 {
-    /** 这个函数从单应矩阵中恢复相机的的运动. 各种计算公式都是从上面的参考文献中导出的,原理复杂,不在介绍原因. 
-     * 计算过程如下: 
+    /** 这个函数从单应矩阵中恢复相机的的运动. 各种计算公式都是从上面的参考文献中导出的,原理复杂,不再详细介绍原因. 
+     * 计算过程如下:  <ul>
     */
 
     /** <li> 统计匹配的特征点对中属于Inlier的个数 </li> */
-    //HERE
     int N=0;
 	//遍历
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -1157,15 +1156,14 @@ bool Initializer::ReconstructH(
     // Motion and structure from motion in a piecewise planar environment.
     // International Journal of Pattern Recognition and Artificial Intelligence, 1988
 
-    // 因为特征点是图像坐标系，所以将H矩阵由相机坐标系换算到图像坐标系
+    /** <li> 由于前面我们是在图像上,也就是在相机的归一化成像平面*相机内参矩阵上得到的单应矩阵,首先需要将他们转换到在空间意义下的单应矩阵.  </li> */
     cv::Mat invK = K.inv();
 	//这个部分不要看PPT，对不太上，可以结合着视觉SLAM十四讲P146页中单应矩阵的推导来看 
-	//TODO  不过感觉最后还是缺少了一个因子d
-    /** <li> 计算矩阵A </li> 
-     * \n 
-    */
+	//其实最后还是缺少了一个因子,但是这个因子最终是反映在单目尺度的不确定性(具体地是表现在后面的平移)上,所以这里完全可以不管它
+
     cv::Mat A = invK*H21*K;
 
+    /** <li> 对单应矩阵(注意不是函数传递过来的单应矩阵)进行奇异值分解 </li> */
 	//存储进行奇异值分解的结果
     cv::Mat U,w,Vt,V;
 	//进行奇异值分解
@@ -1186,6 +1184,7 @@ bool Initializer::ReconstructH(
     float d2 = w.at<float>(1);
     float d3 = w.at<float>(2);
 
+    /** <li> 查看是否满足奇异值分解的的降序排列,如果不符合那么就放弃解算  </li> */
     // SVD分解的正常情况是特征值降序排列
 	// NOTICE 妙啊！！！用这种方式来比较浮点数的大小
     if(d1/d2<1.00001 || d2/d3<1.00001)
@@ -1194,6 +1193,8 @@ bool Initializer::ReconstructH(
         return false;
     }
 
+
+    /** <li> 在ORBSLAM中没有对奇异值 d1 d2 d3的关系进行分类讨论,直接进行了计算  </li> */
     //由于d1 d2 d3的关系再怎么特殊，计算过程也还是都一样的，因此这里没有进行判断而是直接进行处理了
     //存储每一种子情况下解出来的旋转矩阵、平移向量和空间向量
     vector<cv::Mat> vR, vt, vn;
@@ -1202,6 +1203,8 @@ bool Initializer::ReconstructH(
     vt.reserve(8);
     vn.reserve(8);
 
+
+    /** <li> 为了方便计算, 先计算了所有量的不带符号的值  </li> */
     //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
     // 法向量n'= [x1 0 x3] 对应ppt的公式17
 	//上面注释中的e1 e3其实就是PPT中公式17的表示+-1的符号变量
@@ -1211,6 +1214,8 @@ bool Initializer::ReconstructH(
 	//下面两个数组则是存储了e1 e3相互搭配可能会出现的四种解的情况
     float x1[] = {aux1,aux1,-aux1,-aux1};
     float x3[] = {aux3,-aux3,aux3,-aux3};
+
+    /** <li> 根据d'=±d2的情况进行分类讨论.分别计算各种情况下的 n' R' t' </li> */
 
     //case d'=+d2
     // 计算ppt中公式19
@@ -1258,7 +1263,7 @@ bool Initializer::ReconstructH(
         cv::Mat tp(3,1,CV_32F);
         tp.at<float>(0)=x1[i];
         tp.at<float>(1)=0;
-        tp.at<float>(2)=-x3[i];
+        tp.at<float>(2)=-x3[i];         //注意这里写的是正确的,PPT上的写法不太合适;但是由于x3符号是随机搭配的,所以最后得到的是相同的结果
         tp*=d1-d3;
 
         // 这里虽然对t有归一化，并没有决定单目整个SLAM过程的尺度
@@ -1283,8 +1288,6 @@ bool Initializer::ReconstructH(
         vn.push_back(n);
     }//对于由e1 e3导致的每种可能的解
     
-    // 
-
     //case d'=-d2
     // 计算ppt中 公式22，sin_theta的无符号版
     float aux_sphi = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1-d3)*d2);
@@ -1352,8 +1355,7 @@ bool Initializer::ReconstructH(
     // Instead of applying the visibility constraints proposed in the WFaugeras' paper (which could fail for points seen with low parallax)
     // We reconstruct all hypotheses and check in terms of triangulated points and parallax
 	
-    // d'=d2和d'=-d2分别对应8组(R t)
-	//分分别验证每一种解的情况
+    /** <li> 对于 d'=d2 和 d'=-d2 分别对应8组(R t) 分别验证每一种解的情况</li> <ul> */
     for(size_t i=0; i<8; i++)
     {
 		//第i组解对应的比较大的视差角
@@ -1362,7 +1364,8 @@ bool Initializer::ReconstructH(
         vector<cv::Point3f> vP3Di;
 		//特征点对是否被三角化的标记
         vector<bool> vbTriangulatedi;
-		//调用检查的函数，计算good点的数目
+	
+        /** <li> 调用 Initializer::CheckRT(), 计算good点的数目 </li> */
         int nGood = CheckRT(vR[i],vt[i],					//当前组解的旋转矩阵和平移向量
 							mvKeys1,mvKeys2,				//特征点
 							mvMatches12,vbMatchesInliers,	//特征匹配关系以及Inlier标记
@@ -1371,8 +1374,9 @@ bool Initializer::ReconstructH(
 							4.0*mSigma2,					//三角化过程中允许的最大重投影误差
 							vbTriangulatedi,				//特征点是否被成功进行三角测量的标记
 							parallaxi);						// 这组解在三角化测量的时候的比较大的视差角
-        // 保留最优的和次优的
-		//保存次优解的目的是看看最优解是否突出
+        
+        /** <li> 更新历史最优和次优的解 </li> */
+        // 保留最优的和次优的解.保存次优解的目的是看看最优解是否突出
 		//如果当前组解的good点数是历史最优
         if(nGood>bestGood)
         {
@@ -1396,15 +1400,18 @@ bool Initializer::ReconstructH(
             secondBestGood = nGood;
         }
     }//分别验证每一组解的情况
+    /** </ul> */
 
 
-    //要满足以下条件：
-    if(secondBestGood<0.75*bestGood && 		//最优解的good数要足够突出
-	   bestParallax>=minParallax && 		//最好的视角差大于规定的阈值
-	   bestGood>minTriangulated && 			//最优解的good点数要大于规定的最小的被三角化的点数量
-	   bestGood>0.9*N)						//最优解的good数要足够多，达到9成以上
+    /** <li> 最优解要满足下面的四个条件: </li> <ol>*/
+    if(secondBestGood<0.75*bestGood && 		/** <li> 最优解的good点数要足够突出 </li> */
+	   bestParallax>=minParallax && 		/** <li> 最优解的视角差大于规定的阈值 </li> */
+	   bestGood>minTriangulated && 			/** <li> 最优解的good点数要大于规定的最小的被三角化的点数量 </li> */
+	   bestGood>0.9*N)						/** <li> 最优解的good数要足够多，达到9成以上 </li> */
+       /** </ol> */
     {
-		//只有上面的四个条件同时被满足时，我们才能够认为这组解是真正的最好的解、是满足要求的解
+        /** <li> 只有上面的四个条件同时被满足时，我们才能够认为这组解是真正的最好的解、是满足要求的解 </li> */
+		
 		//从最佳的解的索引访问到R，t
         vR[bestSolutionIdx].copyTo(R21);
         vt[bestSolutionIdx].copyTo(t21);
@@ -1446,7 +1453,7 @@ bool Initializer::ReconstructH(
 // |y'p2'- p1'|     |0|
 // 然后就组成了一个四元一次正定方程组，求解呗
 
-//给定投影矩阵P1,P2和图像上的点kp1,kp2，从而恢复3D坐标
+//给定投影矩阵P1,P2和图像上的点kp1,kp2，从而恢复3D坐标 (三角化)
 void Initializer::Triangulate(
     const cv::KeyPoint &kp1,    //特征点, in reference frame
     const cv::KeyPoint &kp2,    //特征点, in current frame
@@ -1459,6 +1466,12 @@ void Initializer::Triangulate(
     // 这里三角化过程中恢复的3D点深度取决于 t 的尺度，
     // 但是这里恢复的3D点并没有决定单目整个SLAM过程的尺度
     // 因为CreateInitialMapMonocular函数对3D点深度会缩放，然后反过来对 t 有改变
+
+    /** 这里三角化过程中恢复的3D点深度取决于平移向量 t 的尺度,但是这里所恢复的3D点并没有决定整个SLAM过程的尺度. 后面将会有一个名为 CreateInitialMapMonocular()
+     *  的函数对3D点的深度进行缩放, 从而对 t 产生改变. 
+     * \n 求解的过程比较简单,根据相应的算法构造矩阵,然后对其进行奇异值分解,其中右奇异矩阵的最后一行就是最终的解. 
+     * \n 算法还是看相关整理的文件吧.
+     */
 
 	//这个就是上面注释中的矩阵A
     cv::Mat A(4,4,CV_32F);
@@ -1486,6 +1499,9 @@ void Initializer::Normalize(
     vector<cv::Point2f> &vNormalizedPoints, //特征点归一化后的坐标
     cv::Mat &T)                             //将特征点归一化的矩阵
 {
+    /** 这里的归一化，归一的是这些点在x方向和在y方向上的一阶绝对矩。步骤如下：<ul> */
+
+    /** <li> 计算这些点的 X Y 坐标的均值 </li> */
 	//X、Y坐标的均值
     float meanX = 0;
     float meanY = 0;
@@ -1507,7 +1523,7 @@ void Initializer::Normalize(
     meanX = meanX/N;
     meanY = meanY/N;
 
-	//累计累计这些特征点偏离横纵坐标均值的程度的变量
+    /** <li> 分别累计这些特征点偏离横纵坐标均值的多少 </li> */
     float meanDevX = 0;
     float meanDevY = 0;
 
@@ -1522,17 +1538,15 @@ void Initializer::Normalize(
         meanDevY += fabs(vNormalizedPoints[i].y);
     }
 
-    //求出平均到每个点上，其坐标偏离横纵坐标均值的程度
+    /** <li> 求出平均到每个点上，其坐标偏离横纵坐标均值的程度；将其倒数作为一个尺度缩放因子 </li> */
     meanDevX = meanDevX/N;
     meanDevY = meanDevY/N;
-
-	//取其倒数作为一个尺度缩放因子
     float sX = 1.0/meanDevX;
     float sY = 1.0/meanDevY;
 
-    // 将x坐标和y坐标分别进行尺度缩放，使得x坐标和y坐标的一阶绝对矩分别为1
-	//这里所谓的一阶绝对矩其实就是随机变量到取值的中心的绝对值的平均值
-	//归一化就体现在这里
+    /** <li> 将x坐标和y坐标分别进行尺度缩放，使得x坐标和y坐标的一阶绝对矩分别为1 </li> 
+     * \n 这里所谓的一阶绝对矩其实就是随机变量到取值的中心的绝对值的平均值, 归一化就体现在这里
+    */
     for(int i=0; i<N; i++)
     {
 		//对，就是简单地对特征点的坐标进行进一步的缩放
@@ -1540,6 +1554,10 @@ void Initializer::Normalize(
         vNormalizedPoints[i].y = vNormalizedPoints[i].y * sY;
     }
 
+    /** <li> 最后一步就是计算归一化矩阵。 </li>
+     * \n 矩阵的形式如下：
+     * \n \f$ \begin{bmatrix} s_X&0&-\bar{x}\cdot s_X\\ 0&s_Y&-\bar{y}\cdot s_Y\\ 0&0&1 \end{bmatrix} \f$
+     */
     // |sX  0  -meanx*sX|
     // |0   sY -meany*sY|
     // |0   0      1    |
@@ -1548,6 +1566,8 @@ void Initializer::Normalize(
     T.at<float>(1,1) = sY;
     T.at<float>(0,2) = -meanX*sX;
     T.at<float>(1,2) = -meanY*sY;
+
+    /** </ul> */
 }
 
 //进行cheirality check，从而进一步找出F分解后最合适的解
@@ -1564,6 +1584,8 @@ int Initializer::CheckRT(
     vector<bool> &vbGood,                           //特征点（对）中是good点的标记
     float &parallax)                                //计算出来的比较大的视差角（注意不是最大，这个要看后面中程序的注释）
 {   
+    /** 对给出的一组相机运动 R t , 检查解的有效性。 这里又称之为 cheirality check。步骤如下。 <ul> */
+
     // Calibration parameters
 	//从相机内参数矩阵获取相机的校正参数
     const float fx = K.at<float>(0,0);
@@ -1582,7 +1604,10 @@ int Initializer::CheckRT(
     vCosParallax.reserve(vKeys1.size());
 
     // Camera 1 Projection Matrix K[I|0]
-    // 步骤1：得到一个相机的投影矩阵
+    /** <li> 步骤1：得到第一个相机的投影矩阵 </li> 
+     * \n 投影矩阵是一个 3x4 的矩阵，可以将空间中的一个点投影到平面上，获得其平面坐标，这里均指的是齐次坐标。
+     * \n 对于第一个相机是 P1=K*[I|0]
+    */
     // 以第一个相机的光心作为世界坐标系
 	//定义相机的投影矩阵
     cv::Mat P1(3,4,				//矩阵的大小是3x4
@@ -1594,7 +1619,9 @@ int Initializer::CheckRT(
     cv::Mat O1 = cv::Mat::zeros(3,1,CV_32F);
 
     // Camera 2 Projection Matrix K[R|t]
-    // 步骤2：得到第二个相机的投影矩阵
+    /** <li> 步骤2：得到第二个相机的投影矩阵 </li> 
+     * \n 对于第二个相机来说是 P2=K*[R|t]
+     */  
 	//定义
     cv::Mat P2(3,4,CV_32F);
 	//生成
@@ -1603,21 +1630,23 @@ int Initializer::CheckRT(
 	//最终结果是K*[R|t]
     P2 = K*P2;
     // 第二个相机的光心在世界坐标系下的坐标
-	//TODO 不太理解？？
+    //这样子计算的原因参考 Frame::UpdatePoseMatrices() 
     cv::Mat O2 = -R.t()*t;
 
 	//在遍历开始前，先将good点计数设置为0
     int nGood=0;
 
-	//开始针对特征点对展开遍历
+	/** <li> 开始遍历所有的特征点对：  </li> <ul>*/
     for(size_t i=0, iend=vMatches12.size();i<iend;i++)
     {
-		//如果当前的特征点对是噪声点，即不是Inliers
+
+		/** <li> 跳过outliers </li> */
         if(!vbMatchesInliers[i])
-			//那么就跳过，进行下一个特征点对的遍历
+			//进行下一个特征点对的遍历
             continue;
 
-        // kp1和kp2是匹配特K[R|t]征点
+        /** <li> 获取特征点对，调用 Initializer::Triangulate() 函数进行三角化，得到三角化测量之后的3D点坐标 </li> */
+        // kp1和kp2是匹配特征点
 		//如果是Inliers就根据存储的索引关系拿到两个特征点
         const cv::KeyPoint &kp1 = vKeys1[vMatches12[i].first];
         const cv::KeyPoint &kp2 = vKeys2[vMatches12[i].second];
@@ -1630,10 +1659,10 @@ int Initializer::CheckRT(
 					p3dC1);		//输出，三角化测量之后特征点的空间坐标		
 
 		// NOTICE 下面的这个isfinite()貌似确实没有被定义过啊，是C++中提供的函数吗
-		//只要这个三角化测量结果的空间坐标中有一项是无穷大的，
+        // at 2019.02.14 根据提示来看好像是boost库中的函数
+        /** <li> 检验一：只要三角测量的结果中有一个是无穷大的就说明三角化失败，跳过对当前点的处理，进行下一对特征点的遍历 </li> */
         if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2)))
         {
-			//那么就说明三角化失败，原因不明
 			//其实这里就算是不这样写也没问题，因为默认的匹配点对就不是good点
             vbGood[vMatches12[i].first]=false;
 			//继续对下一对匹配点的处理
@@ -1641,7 +1670,9 @@ int Initializer::CheckRT(
         }
 
         // Check parallax
-        // 步骤4：计算视差角余弦值
+        /** <li> 如果通过，接下来计算视差角余弦值 </li> 
+         * \n 使用空间点、两帧的相机光心点构造三角形，利用余弦定理求解
+        */
         //得到向量PO1
         cv::Mat normal1 = p3dC1 - O1;
 		//求取模长，其实就是距离
@@ -1655,9 +1686,9 @@ int Initializer::CheckRT(
 		//根据公式：a.*b=|a||b|cos_theta 可以推导出来下面的式子
         float cosParallax = normal1.dot(normal2)/(dist1*dist2);
 
-        // 步骤5：判断3D点是否在两个摄像头前方
+        /** <li> 检验二：判断3D点是否在两个摄像头前方？视差角是否不太大？ 不满足的话跳过对当前点对的遍历 </li> */
         // Check depth in front of first camera (only if enough parallax, as "infinite" points can easily go to negative depth)
-        // 步骤5.1：3D点深度为负，在第一个摄像头后方，淘汰
+        // 在第一个摄像头后方？
         if(p3dC1.at<float>(2)<=0 && 		//3D点深度为负
 			cosParallax<0.99998)			//并且还要有一定的视差角 
 											//原因在下面会提到：一般视差角比较小时重投影误差比较大
@@ -1665,13 +1696,13 @@ int Initializer::CheckRT(
             continue;
 
         // Check depth in front of second camera (only if enough parallax, as "infinite" points can easily go to negative depth)
-        // 步骤5.2：3D点深度为负，在第二个摄像头后方，淘汰
+        // 在第二个摄像头后方？
         cv::Mat p3dC2 = R*p3dC1+t;			//注意这里是空间点的旋转和平移变换
 		//判断过程和上面的相同
         if(p3dC2.at<float>(2)<=0 && cosParallax<0.99998)
             continue;
 
-        // 步骤6：计算重投影误差
+        /** <li> 检验三：计算空间点在参考帧和当前帧上的重投影误差，如果大于阈值则跳过当前遍历。此外注意，当视差角比较大的时候，重投影误差往往也比较大。 </li> */
         // Check reprojection error in first image
         // 计算3D点在第一个图像上的投影误差
 		//投影到参考帧图像上的点的坐标x,y
@@ -1685,7 +1716,7 @@ int Initializer::CheckRT(
 		//参考帧上的重投影误差，这个的确就是按照定义来的
         float squareError1 = (im1x-kp1.pt.x)*(im1x-kp1.pt.x)+(im1y-kp1.pt.y)*(im1y-kp1.pt.y);
 
-        // 步骤6.1：重投影误差太大，跳过淘汰
+        // 重投影误差太大，跳过淘汰
         // 一般视差角比较小时重投影误差比较大
         if(squareError1>th2)
             continue;
@@ -1702,13 +1733,14 @@ int Initializer::CheckRT(
 		//计算同样的重投影误差
         float squareError2 = (im2x-kp2.pt.x)*(im2x-kp2.pt.x)+(im2y-kp2.pt.y)*(im2y-kp2.pt.y);
 
-        // 步骤6.2：重投影误差太大，跳过淘汰
+        // 重投影误差太大，跳过淘汰
         // 一般视差角比较小时重投影误差比较大
         if(squareError2>th2)
             continue;
 
-        // 步骤7：统计经过检验的3D点个数，记录3D点视差角
-		//如果运行到这里就说明当前遍历的这个特征点对的性质不错，经过了重重检验，说明是一个合格的good点
+        /** <li> 统计经过检验的3D点个数，记录3D点视差角 </li> 
+         * \n 如果运行到这里就说明当前遍历的这个特征点对的性质不错，经过了重重检验，说明是一个合格的点，程序中称之为good点
+         */ 
         vCosParallax.push_back(cosParallax);
 		//存储这个三角化测量后的3D点在世界坐标系下的坐标
         vP3D[vMatches12[i].first] = cv::Point3f(p3dC1.at<float>(0),p3dC1.at<float>(1),p3dC1.at<float>(2));
@@ -1716,12 +1748,16 @@ int Initializer::CheckRT(
         nGood++;
 
 		//判断视差角，只有视差角稍稍大一丢丢的才会给打good点标记
-		//不过我觉得这个写的位置不太对。你的good点计数都++了然后才判断，不是会让good点标志和good点计数不一样吗
+		//REVIEW 不过我觉得这个写的位置不太对。你的good点计数都++了然后才判断，不是会让good点标志和good点计数不一样吗
         if(cosParallax<0.99998)
             vbGood[vMatches12[i].first]=true;
     }//针对特征点对展开遍历
+    /** </ul> */
 
-    // 步骤8：得到3D点中较大的视差角
+    /** <li> 得到3D点中较大的视差角，并且转换成为角度制表示 </li> 
+     * \n 这里有些需要注意的是，如果经过检验过后的点数目小于50个那么就直接取排序后最后一个点的最大视差角；
+     *    否则，则没有必要非得取最大的，直接取第50个点的视差角作为最大视差角
+    */
     if(nGood>0)
     {
         // 从小到大排序
@@ -1730,7 +1766,8 @@ int Initializer::CheckRT(
         // NOTICE trick! 排序后并没有取最大的视差角
         // 取一个较大的视差角
 		// 作者的想法是，如果经过检验过后的视差角个数小于50个，那么就取最后那个最大的视差角
-		//如果大于50个，就取视差角中的排名第50小的，足够大就可以没有必要非得要最大的—— TODO 可这是为什么呢？
+		//如果大于50个，就取视差角中的排名第50小的，足够大就可以没有必要非得要最大的—— 
+        //TODO 可这是为什么呢？直接取最后一个点的也不会花时间啊，这里可能是为了避免太大的视差角引起误差吧
         size_t idx = min(50,int(vCosParallax.size()-1));
 		//将这个选中的角由cos值转化为弧度制再转换为角度制
         parallax = acos(vCosParallax[idx])*180/CV_PI;
@@ -1760,19 +1797,24 @@ void Initializer::DecomposeE(
     cv::Mat &R2,        //Rotation Matrix 2
     cv::Mat &t)         //Translation，另外一个结果取它的相反数就行
 {
+    /** 其实这里的过程，师兄的PPT上讲得都差不多了。基本步骤如下：<ul> */
+
+    /** <li> 对本质矩阵进行奇异值分解 </li> */
 	//准备存储对本质矩阵进行奇异值分解的结果
     cv::Mat u,w,vt;
 	//对本质矩阵进行奇异值分解
     cv::SVD::compute(E,w,u,vt);
 
-    // 对 t 有归一化，但是这个地方并没有决定单目整个SLAM过程的尺度
-    // 因为CreateInitialMapMonocular函数对3D点深度会缩放，然后反过来对 t 有改变
-	//其实这里的t就是左奇异矩阵的最后一列
+    /** <li> 左奇异值矩阵U的最后一列就是t，对其进行归一化 </li> 
+     * 但是需要注意这个地方并没有决定尺度；尺度的决定将会在CreateInitialMapMonocular函数对3D点深度会缩放，然后反过来对 t 有改变
+    */
     u.col(2).copyTo(t);
-	//然后对t进行归一化
     t=t/cv::norm(t);
 
-	//构造一个绕Z轴旋转pi/2的旋转矩阵
+    /** <li> 构造一个绕Z轴旋转pi/2的旋转矩阵W，按照下式组合得到旋转矩阵R1： </li> 
+     * \n R1 = u*W*vt
+     * \n 计算完成后要检查一下旋转矩阵行列式的数值，使其满足行列式为1的约束
+    */
     cv::Mat W(3,3,CV_32F,cv::Scalar(0));
     W.at<float>(0,1)=-1;
     W.at<float>(1,0)=1;
@@ -1784,11 +1826,16 @@ void Initializer::DecomposeE(
     if(cv::determinant(R1)<0) // 旋转矩阵有行列式为1的约束
         R1=-R1;
 
-	//同理，计算
+	/** <li> 同理将矩阵W取转置来按照相同的公式计算旋转矩阵R2： </li> 
+     * \n R2 = u*W.t()*vt
+     * \n 当然也要进行同样的保证行列式为1的约束的操作
+    */
     R2 = u*W.t()*vt;
 	//检查旋转矩阵行列式的数值
     if(cv::determinant(R2)<0)
         R2=-R2;
+
+    /** </ul> */
 }
 
 } //namespace ORB_SLAM
