@@ -1,4 +1,16 @@
 /**
+ * @file ORBextractor.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief ORB特征提取器的实现
+ * @version 0.1
+ * @date 2019-02-15
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+
+/**
 * This file is part of ORB-SLAM2.
 * This file is based on the file orb.cpp from the OpenCV library (see BSD license below).
 *
@@ -18,6 +30,7 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
+
 /**
 * Software License Agreement (BSD License)
 *
@@ -52,6 +65,7 @@
 *  POSSIBILITY OF SUCH DAMAGE.
 *
 */
+
 
 
 #include <opencv2/core/core.hpp>
