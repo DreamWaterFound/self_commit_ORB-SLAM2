@@ -1,4 +1,15 @@
 /**
+ * @file MapDrawer.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief 绘制地图点
+ * @version 0.1
+ * @date 2019-02-19
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -18,6 +29,7 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+
 #include "MapDrawer.h"
 #include "MapPoint.h"
 #include "KeyFrame.h"
@@ -27,9 +39,10 @@
 namespace ORB_SLAM2
 {
 
-
+//构造函数
 MapDrawer::MapDrawer(Map* pMap, const string &strSettingPath):mpMap(pMap)
 {
+    //从配置文件中读取设置的
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
 
     mKeyFrameSize = fSettings["Viewer.KeyFrameSize"];
@@ -41,7 +54,7 @@ MapDrawer::MapDrawer(Map* pMap, const string &strSettingPath):mpMap(pMap)
 
 }
 
-//关于gl相关的函数，可直接google, 并加上msdn关键词
+//关于gl相关的函数，可直接google, 并加上msdn关键词 - 大佬牛逼!
 void MapDrawer::DrawMapPoints()
 {
     //取出所有的地图点
@@ -49,7 +62,8 @@ void MapDrawer::DrawMapPoints()
     //取出mvpReferenceMapPoints，也即局部地图d点
     const vector<MapPoint*> &vpRefMPs = mpMap->GetReferenceMapPoints();
 
-    //将vpRefMPs从vector容器类型转化为set容器类型，便于使用set::count快速统计
+    //将vpRefMPs从vector容器类型转化为set容器类型，便于使用set::count快速统计 - 我觉得称之为"重新构造"可能更加合适一些
+    //补充, set::count用于返回集合中为某个值的元素的个数
     set<MapPoint*> spRefMPs(vpRefMPs.begin(), vpRefMPs.end());
 
     if(vpMPs.empty())
@@ -59,7 +73,7 @@ void MapDrawer::DrawMapPoints()
     //显示所有的地图点（不包括局部地图点），大小为2个像素，黑色
     glPointSize(mPointSize);
     glBegin(GL_POINTS);
-    glColor3f(0.0,0.0,0.0);
+    glColor3f(0.0,0.0,0.0);         //黑色
 
     for(size_t i=0, iend=vpMPs.size(); i<iend;i++)
     {
@@ -96,23 +110,24 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
     const float h = w*0.75;
     const float z = w*0.6;
 
-    //步骤1：取出所有的关键帧
+    // step 1：取出所有的关键帧
     const vector<KeyFrame*> vpKFs = mpMap->GetAllKeyFrames();
 
-    //步骤2：显示所有关键帧图标
+    // step 2：显示所有关键帧图标
     //通过显示界面选择是否显示历史关键帧图标
     if(bDrawKF)
     {
         for(size_t i=0; i<vpKFs.size(); i++)
         {
             KeyFrame* pKF = vpKFs[i];
-            //转置, OpenGL中的矩阵为列优先存储
+            //NOTICE 转置, OpenGL中的矩阵为列优先存储
             cv::Mat Twc = pKF->GetPoseInverse().t();
 
             glPushMatrix();
 
             //（由于使用了glPushMatrix函数，因此当前帧矩阵为世界坐标系下的单位矩阵）
             //因为OpenGL中的矩阵为列优先存储，因此实际为Tcw，即相机在世界坐标下的位姿
+            //NOTICE 竟然还可以这样写,牛逼牛逼
             glMultMatrixf(Twc.ptr<GLfloat>(0));
 
             //设置绘制图形时线的宽度
@@ -147,7 +162,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
         }
     }
 
-    //步骤3：显示所有关键帧的Essential Graph
+    // step 3：显示所有关键帧的Essential Graph (本征图)
     //通过显示界面选择是否显示关键帧连接关系
     if(bDrawGraph)
     {
@@ -155,12 +170,12 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
         glLineWidth(mGraphLineWidth);
         //设置共视图连接线为绿色，透明度为0.6f
         glColor4f(0.0f,1.0f,0.0f,0.6f);
-        glBegin(GL_LINES);
+        glBegin(GL_LINES);  //绘制线条的时候,默认是按照添加顺序,每两个点之间绘制一条直线
 
         for(size_t i=0; i<vpKFs.size(); i++)
         {
-            // Covisibility Graph
-            //步骤3.1 共视程度比较高的共视关键帧用线连接
+            // Covisibility Graph (共视图)
+            // step 3.1 共视程度比较高的共视关键帧用线连接
             //遍历每一个关键帧，得到它们共视程度比较高的关键帧
             const vector<KeyFrame*> vCovKFs = vpKFs[i]->GetCovisiblesByWeight(100);
             //遍历每一个关键帧，得到它在世界坐标系下的相机坐标
@@ -169,6 +184,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
             {
                 for(vector<KeyFrame*>::const_iterator vit=vCovKFs.begin(), vend=vCovKFs.end(); vit!=vend; vit++)
                 {
+                    //单向绘制
                     if((*vit)->mnId<vpKFs[i]->mnId)
                         continue;
                     cv::Mat Ow2 = (*vit)->GetCameraCenter();
@@ -178,7 +194,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
             }
 
             // Spanning tree
-            //步骤3.2 连接最小生成树
+            // step 3.2 连接最小生成树
             KeyFrame* pParent = vpKFs[i]->GetParent();
             if(pParent)
             {
@@ -188,7 +204,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
             }
 
             // Loops
-            //步骤3.3 连接闭环时形成的连接关系
+            // step 3.3 连接闭环时形成的连接关系
             set<KeyFrame*> sLoopKFs = vpKFs[i]->GetLoopEdges();
             for(set<KeyFrame*>::iterator sit=sLoopKFs.begin(), send=sLoopKFs.end(); sit!=send; sit++)
             {
