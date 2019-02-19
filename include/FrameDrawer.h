@@ -1,4 +1,15 @@
 /**
+ * @file FrameDrawer.h
+ * @author guoqing (1337841346@qq.com)
+ * @brief 帧绘制器的定义
+ * @version 0.1
+ * @date 2019-02-19
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -17,6 +28,7 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
+
 
 #ifndef FRAMEDRAWER_H
 #define FRAMEDRAWER_H

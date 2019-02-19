@@ -1,4 +1,15 @@
 /**
+ * @file Viewer.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief 查看器的实现
+ * @version 0.1
+ * @date 2019-02-19
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -18,6 +29,9 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+
+
+
 #include "Viewer.h"
 #include <pangolin/pangolin.h>
 
@@ -26,25 +40,31 @@
 namespace ORB_SLAM2
 {
 
+//查看器的构造函数
 Viewer::Viewer(System* pSystem, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer, Tracking *pTracking, const string &strSettingPath):
     mpSystem(pSystem), mpFrameDrawer(pFrameDrawer),mpMapDrawer(pMapDrawer), mpTracker(pTracking),
     mbFinishRequested(false), mbFinished(true), mbStopped(false), mbStopRequested(false)
 {
+    //从文件中读取相机的帧频
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
 
     float fps = fSettings["Camera.fps"];
     if(fps<1)
         fps=30;
+    //计算出每一帧所持续的时间
     mT = 1e3/fps;
 
+    //从配置文件中获取图像的长宽参数
     mImageWidth = fSettings["Camera.width"];
     mImageHeight = fSettings["Camera.height"];
     if(mImageWidth<1 || mImageHeight<1)
-    {
+    {   
+        //默认值
         mImageWidth = 640;
         mImageHeight = 480;
     }
 
+    //读取视角
     mViewpointX = fSettings["Viewer.ViewpointX"];
     mViewpointY = fSettings["Viewer.ViewpointY"];
     mViewpointZ = fSettings["Viewer.ViewpointZ"];
@@ -52,6 +72,7 @@ Viewer::Viewer(System* pSystem, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer
 }
 
 // pangolin库的文档：http://docs.ros.org/fuerte/api/pangolin_wrapper/html/namespacepangolin.html
+//查看器的主进程看来是外部函数所调用的
 void Viewer::Run()
 {
     //这个变量配合SetFinish函数用于指示该函数是否执行完毕
@@ -97,39 +118,48 @@ void Viewer::Run()
             .SetBounds(0.0, 1.0, pangolin::Attach::Pix(175), 1.0, -1024.0f/768.0f)
             .SetHandler(new pangolin::Handler3D(s_cam));
 
+    //创建一个欧式变换矩阵,存储当前的相机位姿
     pangolin::OpenGlMatrix Twc;
     Twc.SetIdentity();
 
+    //创建当前帧图像查看器,谢晓佳在泡泡机器人的第35课中讲过这个;需要先声明窗口,再创建;否则就容易出现窗口无法刷新的情况
     cv::namedWindow("ORB-SLAM2: Current Frame");
 
+    //ui设置
     bool bFollow = true;
     bool bLocalizationMode = false;
 
+    //更新绘制的内容
     while(1)
     {
         // 清除缓冲区中的当前可写的颜色缓冲 和 深度缓冲
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        // 步骤1：得到最新的相机位姿
+        // step1：得到最新的相机位姿
         mpMapDrawer->GetCurrentOpenGLCameraMatrix(Twc);
 
-        // 步骤2：根据相机的位姿调整视角
+        // step2：根据相机的位姿调整视角
         // menuFollowCamera为按钮的状态，bFollow为真实的状态
         if(menuFollowCamera && bFollow)
         {
+            //当之前也在跟踪相机时
             s_cam.Follow(Twc);
         }
         else if(menuFollowCamera && !bFollow)
         {
-            s_cam.SetModelViewMatrix(pangolin::ModelViewLookAt(mViewpointX,mViewpointY,mViewpointZ, 0,0,0,0.0,-1.0, 0.0));
+            //当之前没有在跟踪相机时
+            s_cam.SetModelViewMatrix(
+                pangolin::ModelViewLookAt(mViewpointX,mViewpointY,mViewpointZ, 0,0,0,0.0,-1.0, 0.0));   //?
             s_cam.Follow(Twc);
             bFollow = true;
         }
         else if(!menuFollowCamera && bFollow)
         {
+            //之前跟踪相机,但是现在菜单命令不要跟踪相机时
             bFollow = false;
         }
 
+        //更新定位模式或者是SLAM模式
         if(menuLocalizationMode && !bLocalizationMode)
         {
             mpSystem->ActivateLocalizationMode();
@@ -142,38 +172,51 @@ void Viewer::Run()
         }
 
         d_cam.Activate(s_cam);
-        // 步骤3：绘制地图和图像
+        // step 3：绘制地图和图像(3D部分)
         // 设置为白色，glClearColor(red, green, blue, alpha），数值范围(0, 1)
         glClearColor(1.0f,1.0f,1.0f,1.0f);
+        //绘制当前相机
         mpMapDrawer->DrawCurrentCamera(Twc);
+        //绘制关键帧和公式图
         if(menuShowKeyFrames || menuShowGraph)
             mpMapDrawer->DrawKeyFrames(menuShowKeyFrames,menuShowGraph);
+        //绘制地图点
         if(menuShowPoints)
             mpMapDrawer->DrawMapPoints();
 
         pangolin::FinishFrame();
 
+        // step 4:绘制当前帧图像和特征点提取匹配结果
         cv::Mat im = mpFrameDrawer->DrawFrame();
         cv::imshow("ORB-SLAM2: Current Frame",im);
+        //NOTICE 注意对于我所遇到的问题,ORB-SLAM2是这样子来处理的
         cv::waitKey(mT);
 
+        // step 5 相应其他请求
+        //复位按钮
         if(menuReset)
         {
+            //将所有的GUI控件恢复初始状态
             menuShowGraph = true;
             menuShowKeyFrames = true;
             menuShowPoints = true;
             menuLocalizationMode = false;
             if(bLocalizationMode)
                 mpSystem->DeactivateLocalizationMode();
+            //相关变量也恢复到初始状态
             bLocalizationMode = false;
             bFollow = true;
             menuFollowCamera = true;
+            //告知系统复位
             mpSystem->Reset();
+            //按钮本身状态复位
             menuReset = false;
         }
 
+        //如果有停止更新的请求
         if(Stop())
         {
+            //就不再绘图了,并且在这里每隔三秒检查一下是否结束
             while(isStopped())
             {
 				//usleep(3000);
@@ -182,37 +225,44 @@ void Viewer::Run()
             }
         }
 
+        //满足的时候退出这个线程循环,这里应该是查看终止请求
         if(CheckFinish())
             break;
     }
 
+    //终止查看器,主要是设置状态,执行完成退出这个函数后,查看器进程就已经被销毁了
     SetFinish();
 }
 
+//外部函数调用,用来请求当前进程结束
 void Viewer::RequestFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinishRequested = true;
 }
 
+//检查是否有结束当前进程的请求
 bool Viewer::CheckFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinishRequested;
 }
 
+//设置变量:当前进程已经结束
 void Viewer::SetFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinished = true;
 }
 
+//判断当前进程是否已经结束
 bool Viewer::isFinished()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinished;
 }
 
+//请求当前查看器停止更新
 void Viewer::RequestStop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -220,12 +270,14 @@ void Viewer::RequestStop()
         mbStopRequested = true;
 }
 
+//查看当前查看器是否已经停止更新
 bool Viewer::isStopped()
 {
     unique_lock<mutex> lock(mMutexStop);
     return mbStopped;
 }
 
+//当前查看器停止更新
 bool Viewer::Stop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -244,6 +296,7 @@ bool Viewer::Stop()
 
 }
 
+//释放查看器进程,因为如果停止查看器的话,查看器进程会处于死循环状态.这个就是为了释放那个标志
 void Viewer::Release()
 {
     unique_lock<mutex> lock(mMutexStop);
