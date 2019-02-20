@@ -72,10 +72,7 @@ public:
     /** @brief 请求停止当前进程 */
     void RequestFinish();
     
-    /** @brief ????
-     *  @details 但是目前我还没有搞明白这个和上一个的区别 
-    */
-    //?
+    /** @brief 请求当前可视化进程暂停更新图像数据 */
     void RequestStop();
     /** @brief 当前是否有停止当前进程的请求 */
     bool isFinished();

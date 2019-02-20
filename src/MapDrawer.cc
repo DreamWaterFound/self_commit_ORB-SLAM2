@@ -195,6 +195,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
 
             // Spanning tree
             // step 3.2 连接最小生成树
+            //TODO 这个部分的理论知识还不是很了解
             KeyFrame* pParent = vpKFs[i]->GetParent();
             if(pParent)
             {
@@ -205,6 +206,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
 
             // Loops
             // step 3.3 连接闭环时形成的连接关系
+            //TODO 这个部分也不是非常明白
             set<KeyFrame*> sLoopKFs = vpKFs[i]->GetLoopEdges();
             for(set<KeyFrame*>::iterator sit=sLoopKFs.begin(), send=sLoopKFs.end(); sit!=send; sit++)
             {
@@ -234,6 +236,7 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
     //将4*4的矩阵Twc.m右乘一个当前矩阵
     //（由于使用了glPushMatrix函数，因此当前帧矩阵为世界坐标系下的单位矩阵）
     //因为OpenGL中的矩阵为列优先存储，因此实际为Tcw，即相机在世界坐标下的位姿
+    //一个是整型,一个是浮点数类型
 #ifdef HAVE_GLES
         glMultMatrixf(Twc.m);
 #else
@@ -271,7 +274,7 @@ void MapDrawer::DrawCurrentCamera(pangolin::OpenGlMatrix &Twc)
     glPopMatrix();
 }
 
-
+//设置当前帧相机的位姿, 设置这个函数是因为要处理多线程的操作
 void MapDrawer::SetCurrentCameraPose(const cv::Mat &Tcw)
 {
     unique_lock<mutex> lock(mMutexCamera);

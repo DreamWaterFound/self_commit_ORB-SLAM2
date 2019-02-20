@@ -149,7 +149,7 @@ void Viewer::Run()
         {
             //当之前没有在跟踪相机时
             s_cam.SetModelViewMatrix(
-                pangolin::ModelViewLookAt(mViewpointX,mViewpointY,mViewpointZ, 0,0,0,0.0,-1.0, 0.0));   //?
+                pangolin::ModelViewLookAt(mViewpointX,mViewpointY,mViewpointZ, 0,0,0,0.0,-1.0, 0.0));   //? 不知道这个视角设置的具体作用和
             s_cam.Follow(Twc);
             bFollow = true;
         }
