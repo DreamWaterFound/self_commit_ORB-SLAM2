@@ -78,7 +78,7 @@ public:
     bool isFinished();
     /** @brief 判断当前进程是否已经停止 */
     bool isStopped();
-    /** @brief 释放当前进程 */
+    /** @brief 释放变量，避免互斥关系 */
     void Release();
 
 private:

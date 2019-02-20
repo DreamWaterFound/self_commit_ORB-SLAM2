@@ -183,10 +183,10 @@ void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText)
         s << "KFs: " << nKFs << ", MPs: " << nMPs << ", Matches: " << mnTracked;
         //在视觉里程计中匹配到的
         if(mnTrackedVwentiO>0)
-            s << ", +wenti VO matches: " << mnTrackedVO;
-    }wenti
-    else if(nState==Twentiracking::LOST)
-    {wenti
+            s << ", + VO matches: " << mnTrackedVO;
+    }
+    else if(nState==Tracking::LOST)
+    {
         s << " TRACK LOST. TRYING TO RELOCALIZE ";
     }
     else if(nState==Tracking::SYSTEM_NOT_READY)
