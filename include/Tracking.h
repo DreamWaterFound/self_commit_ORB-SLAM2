@@ -256,7 +256,7 @@ protected:
     // points in the map. Still tracking will continue if there are enough matches with temporal points.
     // In that case we are doing visual odometry. The system will try to do relocalization to recover
     // "zero-drift" localization to the map.
-    ///??  看上面的意思是说,如果在纯定位的时候跟丢了,这个就会为真?
+    ///当进行纯定位时才会有的一个变量,为false表示该帧匹配了很多的地图点,跟踪是正常的;如果少于10个则为true,表示快要完蛋了
     bool mbVO;
 
     //Other Thread Pointers
@@ -348,7 +348,7 @@ protected:
     unsigned int mnLastRelocFrameId;
 
     //Motion Model
-    ///运动模型 //? 我知道是恒速模型,但是具体上保存的是什么呢?
+    ///运动模型 //? 我知道是恒速模型,但是具体上保存的是什么呢?矩阵的数据组织格式又是什么?
     cv::Mat mVelocity;
 
     //Color order (true RGB, false BGR, ignored if grayscale)

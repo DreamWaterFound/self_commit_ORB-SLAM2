@@ -163,6 +163,12 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
     }
 
     // step 3：显示所有关键帧的Essential Graph (本征图)
+    /**
+     * 共视图中存储了所有关键帧的共视关系
+     * 本征图中对边进行了优化,保存了所有节点,只存储了具有较多共视点的边,用于进行优化
+     * 生成树则进一步进行了优化,保存了所有节点,但是值保存具有最多共视地图点的关键帧的边
+     * 
+     */
     //通过显示界面选择是否显示关键帧连接关系
     if(bDrawGraph)
     {
@@ -194,7 +200,7 @@ void MapDrawer::DrawKeyFrames(const bool bDrawKF, const bool bDrawGraph)
             }
 
             // Spanning tree
-            // step 3.2 连接最小生成树
+            // step 3.2 连接最小生成树 (PS: 我觉得这里并不是权值最小,而是其中的边对于其他的图来讲是最少的)
             //TODO 这个部分的理论知识还不是很了解
             KeyFrame* pParent = vpKFs[i]->GetParent();
             if(pParent)
