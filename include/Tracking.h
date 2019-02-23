@@ -178,13 +178,13 @@ public:
     // 初始化时前两帧相关变量
     ///之前的匹配
     std::vector<int> mvIniLastMatches;
-    ///当前的匹配
+    ///初始化阶段中,当前帧中的特征点和参考帧中的特征点的匹配关系
     std::vector<int> mvIniMatches;// 跟踪初始化时前两帧之间的匹配
-    ///? 参考帧中匹配的关键点?
+    ///在初始化的过程中,保存参考帧中的特征点
     std::vector<cv::Point2f> mvbPrevMatched;
     ///初始化过程中匹配后进行三角化得到的空间点
     std::vector<cv::Point3f> mvIniP3D;
-    ///? 保存的是完成初始化的参考帧还是当前帧?
+    ///初始化过程中的参考帧
     Frame mInitialFrame;
 
     // Lists used to recover the full camera trajectory at the end of the execution.
@@ -221,13 +221,41 @@ protected:
     /** @brief 单目输入的时候生成初始地图 */
     void CreateInitialMapMonocular();
 
-    /** @brief 检查上一帧中的MapPoints是否被替换 */
+    /**
+     * @brief 检查上一帧中的MapPoints是否被替换
+     * 
+     * Local Mapping线程可能会将关键帧中某些MapPoints进行替换，由于tracking中需要用到mLastFrame，这里检查并更新上一帧中被替换的MapPoints
+     * @see LocalMapping::SearchInNeighbors()
+     */
     void CheckReplacedInLastFrame();
-    /** @brief 跟踪参考关键帧 */
+    /**
+     * @brief 对参考关键帧的MapPoints进行跟踪
+     * 
+     * 1. 计算当前帧的词包，将当前帧的特征点分到特定层的nodes上
+     * 2. 对属于同一node的描述子进行匹配
+     * 3. 根据匹配对估计当前帧的姿态
+     * 4. 根据姿态剔除误匹配
+     * @return 如果匹配数大于10，返回true
+     */
     bool TrackReferenceKeyFrame();
-    /** @brief 更新最近的帧 //? */
+    /**
+     * @brief 双目或rgbd摄像头根据深度值为上一帧产生新的MapPoints
+     *
+     * 在双目和rgbd情况下，选取一些深度小一些的点（可靠一些） \n
+     * 可以通过深度值产生一些新的MapPoints
+     */
     void UpdateLastFrame();
-    /** @brief 使用运动模型来进行跟踪 */
+    
+    /**
+     * @brief 根据匀速度模型对上一帧的MapPoints进行跟踪
+     * 
+     * 1. 非单目情况，需要对上一帧产生一些新的MapPoints（临时）     
+     * 2. 将上一帧的MapPoints投影到当前帧的图像平面上，在投影的位置进行区域匹配
+     * 3. 根据匹配对估计当前帧的姿态
+     * 4. 根据姿态剔除误匹配
+     * @return 如果匹配数大于10，返回true
+     * @see V-B Initial Pose Estimation From Previous Frame
+     */
     bool TrackWithMotionModel();
 
     /** @brief 重定位模块 */
@@ -355,7 +383,7 @@ protected:
     ///RGB图像的颜色通道顺序
     bool mbRGB;
 
-    ///? 临时的(地图)点
+    ///临时的地图点,用于提高双目和RGBD摄像头的帧间效果,用完之后就扔了
     list<MapPoint*> mlpTemporalPoints;
 };  //class Tracking
 
