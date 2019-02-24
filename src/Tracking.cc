@@ -29,6 +29,8 @@
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
 
+//HACK 更新一下.h文件中的文档注释,主要是函数;以及当前文件中每个步骤的doxygen文档信息
+
 
 #include "Tracking.h"
 
@@ -1176,6 +1178,7 @@ bool Tracking::TrackReferenceKeyFrame()
     vector<MapPoint*> vpMapPointMatches;
 
     // step 2：通过特征点的BoW加快当前帧与参考帧之间的特征点匹配
+    //NOYICE 之前师兄说的，通过词袋模型加速匹配就是在这里哇
     // 特征点的匹配关系由MapPoints进行维护
     int nmatches = matcher.SearchByBoW(
         mpReferenceKF,          //参考关键帧
@@ -1293,11 +1296,11 @@ void Tracking::UpdateLastFrame()
         //如果需要创建新的临时地图点
         if(bCreateNew)
         {
-            // 这些生成MapPoints后并没有通过：
-            // a.AddMapPoint、
-            // b.AddObservation、
-            // c.ComputeDistinctiveDescriptors、
-            // d.UpdateNormalAndDepth添加属性，
+            // 这些生UpdateLastFrameints后并没有通过：
+            // a.AddMaUpdateLastFrame、
+            // b.AddObUpdateLastFrameion、
+            // c.CompuUpdateLastFrameinctiveDescriptors、
+            // d.UpdatUpdateLastFramelAndDepth添加属性，
             // 这些MapPoint仅仅为了提高双目和RGBD的跟踪成功率   -- 我觉得可以这么说是因为在临时地图中增加了地图点，能够和局部地图一并进行定位工作
             cv::Mat x3D = mLastFrame.UnprojectStereo(i);
             MapPoint* pNewMP = new MapPoint(
@@ -1341,26 +1344,27 @@ bool Tracking::TrackWithMotionModel()
 
     // Update last frame pose according to its reference keyframe
     // Create "visual odometry" points
-    // 步骤1：对于双目或rgbd摄像头，根据深度值为上一关键帧生成新的MapPoints
+    // step 1：更新上一帧的位姿；对于双目或rgbd摄像头，还会根据深度值为上一关键帧生成新的MapPoints
     // （跟踪过程中需要将当前帧与上一帧进行特征点匹配，将上一帧的MapPoints投影到当前帧可以缩小匹配范围）
     // 在跟踪过程中，去除outlier的MapPoint，如果不及时增加MapPoint会逐渐减少
     // 这个函数的功能就是补充增加RGBD和双目相机上一帧的MapPoints数   //? 那么单目的时候呢? 
     UpdateLastFrame();
 
-    // 根据Const Velocity Model(认为这两帧之间的相对运动和之前两帧间相对运动相同)估计当前帧的位姿
+    // 根据Const Velocity Model( NOTICE  认为这两帧之间的相对运动和之前两帧间相对运动相同)估计当前帧的位姿
     mCurrentFrame.SetPose(mVelocity*mLastFrame.mTcw);
-
+    //清空当前帧的地图点
     fill(mCurrentFrame.mvpMapPoints.begin(),mCurrentFrame.mvpMapPoints.end(),static_cast<MapPoint*>(NULL));
 
     // Project points seen in previous frame
+    //这个阈值和下面的的跟踪有关,表示了匹配过程中的搜索半径
     int th;
     if(mSensor!=System::STEREO)
         th=15;
     else
         th=7;
 
-    // 步骤2：根据匀速度模型进行对上一帧的MapPoints进行跟踪
-    // 根据上一帧特征点对应的3D点投影的位置缩小特征点匹配范围
+    // step 2：根据匀速度模型进行对上一帧的MapPoints进行跟踪, 根据上一帧特征点对应的3D点投影的位置缩小特征点匹配范围
+    //我觉的这个才是使用恒速模型的根本目的
     int nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,th,mSensor==System::MONOCULAR);
 
     // If few matches, uses a wider window search
@@ -1371,15 +1375,16 @@ bool Tracking::TrackWithMotionModel()
         nmatches = matcher.SearchByProjection(mCurrentFrame,mLastFrame,2*th,mSensor==System::MONOCULAR); // 2*th
     }
 
+    //如果就算是这样还是不能够获得足够的跟踪点,那么就认为运动跟踪失败了.
     if(nmatches<20)
         return false;
 
     // Optimize frame pose with all matches
-    // 步骤3：优化位姿
+    // step 3：优化位姿
     Optimizer::PoseOptimization(&mCurrentFrame);
 
     // Discard outliers
-    // 步骤4：优化位姿后剔除outlier的mvpMapPoints
+    // step 4：优化位姿后剔除outlier的mvpMapPoints,这个和前面相似
     int nmatchesMap = 0;
     for(int i =0; i<mCurrentFrame.N; i++)
     {
@@ -1396,12 +1401,14 @@ bool Tracking::TrackWithMotionModel()
                 nmatches--;
             }
             else if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
+                //累加成功匹配到的地图点数目
                 nmatchesMap++;
         }
     }    
 
     if(mbOnlyTracking)
     {
+        //如果在纯定位过程中追踪的地图点非常少,那么这里的 mbVO 标志就会置位
         mbVO = nmatchesMap<10;
         return nmatches>20;
     }
@@ -1425,31 +1432,35 @@ bool Tracking::TrackLocalMap()
     // We retrieve the local map and try to find matches to points in the local map.
 
     // Update Local KeyFrames and Local Points
-    // 步骤1：更新局部关键帧mvpLocalKeyFrames和局部地图点mvpLocalMapPoints
+    // step 1：更新局部关键帧mvpLocalKeyFrames和局部地图点mvpLocalMapPoints
     UpdateLocalMap();
 
-    // 步骤2：在局部地图中查找与当前帧匹配的MapPoints
+    // step 2：在局部地图中查找与当前帧匹配的MapPoints, 其实也就是对局部地图点进行跟踪
+    //? 这里的跟踪怎么理解?
     SearchLocalPoints();
 
     // Optimize Pose
-    // 在这个函数之前，在Relocalization、TrackReferenceKeyFrame、TrackWithMotionModel中都有位姿优化，
-    // 步骤3：更新局部所有MapPoints后对位姿再次优化
+    // 在这个函数之前，在 Relocalization、TrackReferenceKeyFrame、TrackWithMotionModel 中都有位姿优化，
+    // step 3：更新局部所有MapPoints后对位姿再次优化
     Optimizer::PoseOptimization(&mCurrentFrame);
     mnMatchesInliers = 0;
 
     // Update MapPoints Statistics
-    // 步骤3：更新当前帧的MapPoints被观测程度，并统计跟踪局部地图的效果
+    // step 3：更新当前帧的MapPoints被观测程度，并统计跟踪局部地图的效果
     for(int i=0; i<mCurrentFrame.N; i++)
     {
         if(mCurrentFrame.mvpMapPoints[i])
         {
-            // 由于当前帧的MapPoints可以被当前帧观测到，其被观测统计量加1
+            // 由于当前帧的MapPoints可以被当前帧观测到，其被观测统计量加1 -- NOTICE 严格来说这里应该不是被观测
             if(!mCurrentFrame.mvbOutlier[i])
             {
                 mCurrentFrame.mvpMapPoints[i]->IncreaseFound();
+                //查看当前是否是在纯定位过程
                 if(!mbOnlyTracking)
                 {
                     // 该MapPoint被其它关键帧观测到过
+                    //NOTICE 注意这里的"Obervation"和上面的"Found"并不是一个东西
+                    //? 那么区别又在哪里呢?
                     if(mCurrentFrame.mvpMapPoints[i]->Observations()>0)
                         mnMatchesInliers++;
                 }
@@ -1457,7 +1468,7 @@ bool Tracking::TrackLocalMap()
                     // 记录当前帧跟踪到的MapPoints，用于统计跟踪效果
                     mnMatchesInliers++;
             }
-            else if(mSensor==System::STEREO)
+            else if(mSensor==System::STEREO)    //如果这个地图点是外点,并且当前相机输入还是双目的时候,就删除这个点;如果是其他类型的输入反而不管了...
                 mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
 
         }
@@ -1465,23 +1476,25 @@ bool Tracking::TrackLocalMap()
 
     // Decide if the tracking was succesful
     // More restrictive if there was a relocalization recently
-    // 步骤4：决定是否跟踪成功
+    // step 4：决定是否跟踪成功
+    //如果最近刚刚发生了重定位,那么至少跟踪上了50个点我们才认为是跟踪上了
     if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && mnMatchesInliers<50)
         return false;
 
+    //如果是正常的状态话只要跟踪的地图点大于30个我们就认为成功了
     if(mnMatchesInliers<30)
         return false;
     else
         return true;
 }
 
-/**
+/*
  * @brief 断当前帧是否为关键帧
  * @return true if needed
  */
 bool Tracking::NeedNewKeyFrame()
 {
-    // 步骤1：如果用户在界面上选择重定位，那么将不插入关键帧
+    // step 1：如果用户在界面上选择重定位，那么将不插入关键帧
     // 由于插入关键帧过程中会生成MapPoint，因此用户选择重定位后地图上的点云和关键帧都不会再增加
     if(mbOnlyTracking)
         return false;
@@ -1494,38 +1507,42 @@ bool Tracking::NeedNewKeyFrame()
     const int nKFs = mpMap->KeyFramesInMap();
 
     // Do not insert keyframes if not enough frames have passed from last relocalisation
-    // 步骤2：判断是否距离上一次插入关键帧的时间太短
+    // step 2：判断是否距离上一次插入关键帧的时间太短
     // mCurrentFrame.mnId是当前帧的ID
     // mnLastRelocFrameId是最近一次重定位帧的ID
     // mMaxFrames等于图像输入的帧率
     // 如果关键帧比较少，则考虑插入关键帧
     // 或距离上一次重定位超过1s，则考虑插入关键帧
-    if(mCurrentFrame.mnId<mnLastRelocFrameId+mMaxFrames && nKFs>mMaxFrames)
+    if( mCurrentFrame.mnId < mnLastRelocFrameId + mMaxFrames &&     //距离上一次重定位不超过1s
+        nKFs>mMaxFrames)                                            //地图中的关键帧已经足够
         return false;
 
     // Tracked MapPoints in the reference keyframe
-    // 步骤3：得到参考关键帧跟踪到的MapPoints数量
-	// 在UpdateLocalKeyFrames函数中会将与当前关键帧共视程度最高的关键帧设定为当前帧的参考关键帧
+    // step 3：得到参考关键帧跟踪到的MapPoints数量
+	// NOTICE 在 UpdateLocalKeyFrames 函数中会将与当前关键帧共视程度最高的关键帧设定为当前帧的参考关键帧 -- 一般的参考关键帧的选择原则
+    //地图点的最小观测次数
     int nMinObs = 3;
     if(nKFs<=2)
         nMinObs=2;
+    //获取地图点的数目, which 参考帧观测的数目大于等于 nMinObs
     int nRefMatches = mpReferenceKF->TrackedMapPoints(nMinObs);
 
     // Local Mapping accept keyframes?
-    // 步骤4：查询局部地图管理器是否繁忙
+    // step 4：查询局部地图管理器是否繁忙,也就是当前能否接受新的关键帧
     bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();
 
     // Stereo & RGB-D: Ratio of close "matches to map"/"total matches"
     // "total matches = matches to map + visual odometry matches"
     // Visual odometry matches will become MapPoints if we insert a keyframe.
     // This ratio measures how many MapPoints we could create if we insert a keyframe.
-    // 步骤5：对于双目或RGBD摄像头，统计总的可以添加的MapPoints数量和跟踪到地图中的MapPoints数量
-    int nMap = 0;
-    int nTotal= 0;
+    // step 5：对于双目或RGBD摄像头，统计 总的可以添加的MapPoints数量 和 跟踪到地图中的MapPoints数量
+    int nMap = 0;       //现有地图中,可以被关键帧观测到的地图点数目
+    int nTotal= 0;      //当前帧中可以添加到地图中的地图点数量
     if(mSensor!=System::MONOCULAR)// 双目或rgbd
     {
         for(int i =0; i<mCurrentFrame.N; i++)
         {
+            //如果是近点,并且这个特征点的深度合法,就可以被添加到地图中
             if(mCurrentFrame.mvDepth[i]>0 && mCurrentFrame.mvDepth[i]<mThDepth)
             {
                 nTotal++;// 总的可以添加mappoints数
@@ -1538,20 +1555,22 @@ bool Tracking::NeedNewKeyFrame()
     else
     {
         // There are no visual odometry matches in the monocular case
+        //? 提问:究竟什么才是 visual odometry matches ?
         nMap=1;
         nTotal=1;
     }
 
+    //计算这个比例,当前帧中观测到的地图点数目和当前帧中总共的地图点数目之比.这个值越接近1越好,越接近0说明跟踪上的地图点太少,tracking is weak
     const float ratioMap = (float)nMap/(float)(std::max(1,nTotal));
 
-    // 步骤6：决策是否需要插入关键帧
+    // step 6：决策是否需要插入关键帧
     // Thresholds
     // 设定inlier阈值，和之前帧特征点匹配的inlier比例
     float thRefRatio = 0.75f;
     if(nKFs<2)
-        thRefRatio = 0.4f;// 关键帧只有一帧，那么插入关键帧的阈值设置很低
+        thRefRatio = 0.4f;// 关键帧只有一帧，那么插入关键帧的阈值设置很低 //? 这句话不应该放在下面这句话的后面吗? 
     if(mSensor==System::MONOCULAR)
-        thRefRatio = 0.9f;
+        thRefRatio = 0.9f;//单目情况下插入关键帧的阈值很高
 
     // MapPoints中和地图关联的比例阈值
     float thMapRatio = 0.35f;
@@ -1562,14 +1581,18 @@ bool Tracking::NeedNewKeyFrame()
     // 很长时间没有插入关键帧
     const bool c1a = mCurrentFrame.mnId>=mnLastKeyFrameId+mMaxFrames;
     // Condition 1b: More than "MinFrames" have passed and Local Mapping is idle
-    // localMapper处于空闲状态
+    // localMapper处于空闲状态,才有生成关键帧的基本条件
     const bool c1b = (mCurrentFrame.mnId>=mnLastKeyFrameId+mMinFrames && bLocalMappingIdle);
     // Condition 1c: tracking is weak
     // 跟踪要跪的节奏，0.25和0.3是一个比较低的阈值
-    const bool c1c =  mSensor!=System::MONOCULAR && (mnMatchesInliers<nRefMatches*0.25 || ratioMap<0.3f) ;
+    const bool c1c =  mSensor!=System::MONOCULAR &&             //只有在双目的时候才成立
+                    (mnMatchesInliers<nRefMatches*0.25 ||       //和地图点匹配的数目非常少
+                      ratioMap<0.3f) ;                          //地图点跟踪成功的比例非常小,要挂了
     // Condition 2: Few tracked points compared to reference keyframe. Lots of visual odometry compared to map matches.
     // 阈值比c1c要高，与之前参考帧（最近的一个关键帧）重复度不是太高
-    const bool c2 = ((mnMatchesInliers<nRefMatches*thRefRatio || ratioMap<thMapRatio) && mnMatchesInliers>15);
+    const bool c2 = ((mnMatchesInliers<nRefMatches*thRefRatio ||    // 总的来说,还是参考关键帧观测到的地图点的数目太少,少于给定的阈值
+                        ratioMap<thMapRatio) &&                     // 追踪到的地图点的数目比例太少,少于阈值
+                    mnMatchesInliers>15);                           //匹配到的内点太少
 
     if((c1a||c1b||c1c)&&c2)
     {
@@ -1577,6 +1600,7 @@ bool Tracking::NeedNewKeyFrame()
         // Otherwise send a signal to interrupt BA
         if(bLocalMappingIdle)
         {
+            //可以插入关键帧
             return true;
         }
         else
@@ -1588,15 +1612,20 @@ bool Tracking::NeedNewKeyFrame()
                 // tracking插入关键帧不是直接插入，而且先插入到mlNewKeyFrames中，
                 // 然后localmapper再逐个pop出来插入到mspKeyFrames
                 if(mpLocalMapper->KeyframesInQueue()<3)
+                    //队列中的关键帧数目不是很多,可以插入
                     return true;
                 else
+                    //队列中缓冲的关键帧数目太多,暂时不能插入
                     return false;
             }
             else
+                //对于单目情况,就直接无法插入关键帧了
+                //? 为什么这里对单目情况的处理不一样?
                 return false;
         }
     }
     else
+        //不满足上面的条件,自然不能插入关键帧
         return false;
 }
 
@@ -1607,19 +1636,20 @@ bool Tracking::NeedNewKeyFrame()
  */
 void Tracking::CreateNewKeyFrame()
 {
+    //如果不能保持局部建图器开启的状态,就无法顺利插入关键帧
     if(!mpLocalMapper->SetNotStop(true))
         return;
 
-    // 步骤1：将当前帧构造成关键帧
+    // step 1：将当前帧构造成关键帧
     KeyFrame* pKF = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
-    // 步骤2：将当前关键帧设置为当前帧的参考关键帧
+    // step 2：将当前关键帧设置为当前帧的参考关键帧
     // 在UpdateLocalKeyFrames函数中会将与当前关键帧共视程度最高的关键帧设定为当前帧的参考关键帧
     mpReferenceKF = pKF;
     mCurrentFrame.mpReferenceKF = pKF;
 
-    // 这段代码和UpdateLastFrame中的那一部分代码功能相同
-    // 步骤3：对于双目或rgbd摄像头，为当前帧生成新的MapPoints
+    // 这段代码和 UpdateLastFrame 中的那一部分代码功能相同
+    // step 3：对于双目或rgbd摄像头，为当前帧生成新的MapPoints
     if(mSensor!=System::MONOCULAR)
     {
         // 根据Tcw计算mRcw、mtcw和mRwc、mOw
@@ -1628,8 +1658,9 @@ void Tracking::CreateNewKeyFrame()
         // We sort points by the measured depth by the stereo/RGBD sensor.
         // We create all those MapPoints whose depth < mThDepth.
         // If there are less than 100 close points we create the 100 closest.
-        // 步骤3.1：得到当前帧深度小于阈值的特征点
+        // step 3.1：得到当前帧深度小于阈值的特征点
         // 创建新的MapPoint, depth < mThDepth
+        //第一个元素是深度,第二个元素是对应的特征点的id
         vector<pair<float,int> > vDepthIdx;
         vDepthIdx.reserve(mCurrentFrame.N);
         for(int i=0; i<mCurrentFrame.N; i++)
@@ -1643,10 +1674,11 @@ void Tracking::CreateNewKeyFrame()
 
         if(!vDepthIdx.empty())
         {
-            // 步骤3.2：按照深度从小到大排序
+            // step 3.2：按照深度从小到大排序
             sort(vDepthIdx.begin(),vDepthIdx.end());
 
-            // 步骤3.3：将距离比较近的点包装成MapPoints
+            // step 3.3：将距离比较近的点包装成MapPoints
+            //处理的近点的个数
             int nPoints = 0;
             for(size_t j=0; j<vDepthIdx.size();j++)
             {
@@ -1655,14 +1687,17 @@ void Tracking::CreateNewKeyFrame()
                 bool bCreateNew = false;
 
                 MapPoint* pMP = mCurrentFrame.mvpMapPoints[i];
+                //如果当前帧中无这个地图点
                 if(!pMP)
                     bCreateNew = true;
                 else if(pMP->Observations()<1)
                 {
+                    //或者是刚刚创立
                     bCreateNew = true;
                     mCurrentFrame.mvpMapPoints[i] = static_cast<MapPoint*>(NULL);
                 }
 
+                //如果需要新建地图点.这里是实打实的在全局地图中新建地图点
                 if(bCreateNew)
                 {
                     cv::Mat x3D = mCurrentFrame.UnprojectStereo(i);
@@ -1679,36 +1714,41 @@ void Tracking::CreateNewKeyFrame()
                 }
                 else
                 {
+                    //? 这里?????
                     nPoints++;
                 }
 
                 // 这里决定了双目和rgbd摄像头时地图点云的稠密程度
                 // 但是仅仅为了让地图稠密直接改这些不太好，
                 // 因为这些MapPoints会参与之后整个slam过程
+                //当当前处理的点大于深度阈值或者已经处理的点超过阈值的时候,就不再进行了
                 if(vDepthIdx[j].first>mThDepth && nPoints>100)
                     break;
             }
         }
     }
 
+    //执行插入关键帧的操作,其实也是在列表中等待
     mpLocalMapper->InsertKeyFrame(pKF);
 
+    //然后现在允许局部建图器停止了
     mpLocalMapper->SetNotStop(false);
 
+    //当前帧成为新的关键帧
     mnLastKeyFrameId = mCurrentFrame.mnId;
     mpLastKeyFrame = pKF;
 }
 
 
 /**
- * @brief 对Local MapPoints进行跟踪
+ * @brief 对 Local MapPoints 进行跟踪
  * 
  * 在局部地图中查找在当前帧视野范围内的点，将视野范围内的点和当前帧的特征点进行投影匹配
  */
 void Tracking::SearchLocalPoints()
 {
     // Do not search map points already matched
-    // 步骤1：遍历当前帧的mvpMapPoints，标记这些MapPoints不参与之后的搜索
+    // step 1：遍历当前帧的mvpMapPoints，标记这些MapPoints不参与之后的搜索
     // 因为当前的mvpMapPoints一定在当前帧的视野中
     for(vector<MapPoint*>::iterator vit=mCurrentFrame.mvpMapPoints.begin(), vend=mCurrentFrame.mvpMapPoints.end(); vit!=vend; vit++)
     {
@@ -1721,20 +1761,21 @@ void Tracking::SearchLocalPoints()
             }
             else
             {
-                // 更新能观测到该点的帧数加1
+                // 更新能观测到该点的帧数加1(被当前帧看到了)
                 pMP->IncreaseVisible();
                 // 标记该点被当前帧观测到
                 pMP->mnLastFrameSeen = mCurrentFrame.mnId;
-                // 标记该点将来不被投影，因为已经匹配过
+                // 标记该点将来不被投影，因为已经匹配过(指的是使用恒速运动模型进行投影)
                 pMP->mbTrackInView = false;
             }
         }
-    }
+    }//遍历当前帧中所有的地图点
 
+    //准备进行投影匹配的点的数目
     int nToMatch=0;
 
     // Project points in frame and check its visibility
-    // 步骤2：将所有局部MapPoints投影到当前帧，判断是否在视野范围内，然后进行投影匹配
+    // step 2：将所有 局部MapPoints 投影到当前帧，判断是否在视野范围内，然后进行投影匹配
     for(vector<MapPoint*>::iterator vit=mvpLocalMapPoints.begin(), vend=mvpLocalMapPoints.end(); vit!=vend; vit++)
     {
         MapPoint* pMP = *vit;
@@ -1742,11 +1783,12 @@ void Tracking::SearchLocalPoints()
         // 已经被当前帧观测到MapPoint不再判断是否能被当前帧观测到
         if(pMP->mnLastFrameSeen == mCurrentFrame.mnId)
             continue;
+        //局部地图中的坏点也是
         if(pMP->isBad())
             continue;
         
         // Project (this fills MapPoint variables for matching)
-        // 步骤2.1：判断LocalMapPoints中的点是否在在视野内
+        // step 2.1：判断LocalMapPoints中的点是否在在视野内
         if(mCurrentFrame.isInFrustum(pMP,0.5))
         {
         	// 观测到该点的帧数加1，该MapPoint在某些帧的视野范围内
@@ -1756,11 +1798,13 @@ void Tracking::SearchLocalPoints()
         }
     }
 
+    //如果的确存在需要进行投影匹配的点的数目
     if(nToMatch>0)
     {
+        
         ORBmatcher matcher(0.8);
         int th = 1;
-        if(mSensor==System::RGBD)
+        if(mSensor==System::RGBD)   //RGBD相机输入的时候,搜索的阈值会变得稍微大一些
             th=3;
 
         // If the camera has been relocalised recently, perform a coarser search
@@ -1768,7 +1812,7 @@ void Tracking::SearchLocalPoints()
         if(mCurrentFrame.mnId<mnLastRelocFrameId+2)
             th=5;
 
-        // 步骤2.2：对视野范围内的MapPoints通过投影进行特征点匹配
+        // step 2.2：对视野范围内的MapPoints通过投影进行特征点匹配
         matcher.SearchByProjection(mCurrentFrame,mvpLocalMapPoints,th);
     }
 }
@@ -1791,6 +1835,8 @@ void Tracking::UpdateLocalMap()
     UpdateLocalKeyFrames();
     UpdateLocalPoints();
 }
+
+//HERE
 
 /**
  * @brief 更新局部关键点，called by UpdateLocalMap()
@@ -1829,7 +1875,8 @@ void Tracking::UpdateLocalPoints()
 /**
  * @brief 更新局部关键帧，called by UpdateLocalMap()
  *
- * 遍历当前帧的MapPoints，将观测到这些MapPoints的关键帧和相邻的关键帧取出，更新mvpLocalKeyFrames
+ * 遍历当前帧的MapPoints，将观测到这些MapPoints的关键帧和相邻的关键帧取出，更新 mvpLocalKeyFrames
+ * //?怎么定义"相邻关键帧?"
  */
 void Tracking::UpdateLocalKeyFrames()
 {

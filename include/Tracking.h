@@ -271,13 +271,23 @@ protected:
 
     /** @brief 根据局部地图中的信息进行追踪 */
     bool TrackLocalMap();
-    /** @brief 寻找局部地图点 */
-    ///??? 具体工作? 目的?
+    /**
+     * @brief 对 Local MapPoints 进行跟踪
+     * 
+     * 在局部地图中查找在当前帧视野范围内的点，将视野范围内的点和当前帧的特征点进行投影匹配
+     */
     void SearchLocalPoints();
 
-    /** @brief 判断当前帧是否有资格成为一个新的关键帧 */
+    /**
+     * @brief 断当前帧是否为关键帧
+     * @return true if needed
+     */
     bool NeedNewKeyFrame();
-    /** @brief 在当前帧的基础上生成一个新的关键帧 */
+    /**
+     * @brief 创建新的关键帧
+     *
+     * 对于非单目的情况，同时创建新的MapPoints
+     */
     void CreateNewKeyFrame();
 
     // In case of performing only localization, this flag is true when there are no matches to
@@ -349,7 +359,7 @@ protected:
     //New KeyFrame rules (according to fps)
     ///和新建关键帧,以及重定位有关
     int mMinFrames;
-    int mMaxFrames;
+    int mMaxFrames;         //? 貌似和图像的帧率有关
 
     // Threshold close/far points
     // Points seen as close by the stereo/RGBD sensor are considered reliable
@@ -362,7 +372,7 @@ protected:
     float mDepthMapFactor;
 
     //Current matches in frame
-    ///当前帧中的进行匹配的近点
+    ///当前帧中的进行匹配的内点,将会被不同的函数反复使用
     int mnMatchesInliers;
 
     //Last Frame, KeyFrame and Relocalisation Info

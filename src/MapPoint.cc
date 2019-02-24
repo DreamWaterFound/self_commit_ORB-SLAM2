@@ -251,7 +251,7 @@ void MapPoint::Replace(MapPoint* pMP)
     mpMap->EraseMapPoint(this);
 }
 
-// 没有经过MapPointCulling检测的MapPoints
+// 没有经过MapPointCulling检测的MapPoints, 认为是坏掉的点
 bool MapPoint::isBad()
 {
     unique_lock<mutex> lock(mMutexFeatures);

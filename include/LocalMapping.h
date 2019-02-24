@@ -66,7 +66,7 @@ public:
 
     void RequestFinish();
     bool isFinished();
-
+    //查看队列中等待插入的关键帧数目
     int KeyframesInQueue(){
         unique_lock<std::mutex> lock(mMutexNewKFs);
         return mlNewKeyFrames.size();

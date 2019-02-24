@@ -139,7 +139,7 @@ void LocalMapping::Run()
  * @brief 插入关键帧
  *
  * 将关键帧插入到地图中，以便将来进行局部地图优化
- * 这里仅仅是将关键帧插入到列表中进行等待
+ * NOTICE 这里仅仅是将关键帧插入到列表中进行等待
  * @param pKF KeyFrame
  */
 void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
@@ -780,11 +780,14 @@ bool LocalMapping::SetNotStop(bool flag)
 {
     unique_lock<mutex> lock(mMutexStop);
 
+    //已经处于!flag的状态了
     if(flag && mbStopped)
+        //设置失败
         return false;
 
+    //设置为要设置的状态
     mbNotStop = flag;
-
+    //设置成功
     return true;
 }
 
