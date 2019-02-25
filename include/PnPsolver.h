@@ -69,6 +69,15 @@ class PnPsolver {
 
   cv::Mat find(vector<bool> &vbInliers, int &nInliers);
 
+  /**
+   * @brief 进行迭代计算
+   * 
+   * @param[in] nIterations   迭代次数
+   * @param[out] bNoMore       //?
+   * @param[out] vbInliers    内点标记 
+   * @param[out] nInliers     内点数目
+   * @return cv::Mat          Tcw
+   */
   cv::Mat iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers);
 
  private:

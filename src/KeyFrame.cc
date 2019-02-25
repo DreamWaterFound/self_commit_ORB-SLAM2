@@ -209,7 +209,7 @@ vector<KeyFrame*> KeyFrame::GetVectorCovisibleKeyFrames()
 /**
  * @brief 得到与该关键帧连接的前N个关键帧(已按权值排序)
  * 
- * 如果连接的关键帧少于N，则返回所有连接的关键帧
+ * NOTICE 如果连接的关键帧少于N，则返回所有连接的关键帧
  * @param N 前N个
  * @return 连接的关键帧
  */
@@ -501,12 +501,14 @@ void KeyFrame::ChangeParent(KeyFrame *pKF)
     pKF->AddChild(this);
 }
 
+//获取当前关键帧的子关键帧
 set<KeyFrame*> KeyFrame::GetChilds()
 {
     unique_lock<mutex> lockCon(mMutexConnections);
     return mspChildrens;
 }
 
+//获取当前关键帧的父关键帧
 KeyFrame* KeyFrame::GetParent()
 {
     unique_lock<mutex> lockCon(mMutexConnections);

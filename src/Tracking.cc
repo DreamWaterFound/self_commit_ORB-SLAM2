@@ -1836,31 +1836,35 @@ void Tracking::UpdateLocalMap()
     UpdateLocalPoints();
 }
 
-//HERE
 
-/**
+
+/*
  * @brief 更新局部关键点，called by UpdateLocalMap()
  * 
  * 局部关键帧mvpLocalKeyFrames的MapPoints，更新mvpLocalMapPoints
+ * \n 我觉得就是先把局部地图清空，然后将局部关键帧的地图点添加到局部地图中
  */
 void Tracking::UpdateLocalPoints()
 {
-    // 步骤1：清空局部MapPoints
+    // step 1：清空局部MapPoints
     mvpLocalMapPoints.clear();
 
-    // 步骤2：遍历局部关键帧mvpLocalKeyFrames
+    // step 2：遍历局部关键帧 in mvpLocalKeyFrames
     for(vector<KeyFrame*>::const_iterator itKF=mvpLocalKeyFrames.begin(), itEndKF=mvpLocalKeyFrames.end(); itKF!=itEndKF; itKF++)
     {
         KeyFrame* pKF = *itKF;
         const vector<MapPoint*> vpMPs = pKF->GetMapPointMatches();
 
-        // 步骤2：将局部关键帧的MapPoints添加到mvpLocalMapPoints
+        // step 2：将局部关键帧的MapPoints添加到mvpLocalMapPoints
         for(vector<MapPoint*>::const_iterator itMP=vpMPs.begin(), itEndMP=vpMPs.end(); itMP!=itEndMP; itMP++)
         {
             MapPoint* pMP = *itMP;
             if(!pMP)
                 continue;
-            // mnTrackReferenceForFrame防止重复添加局部MapPoint
+            // mnTrackReferenceForFrame 防止重复添加局部MapPoint
+            //? 目前不太懂,变量名为什么取这个,以及在之前的什么地方会出现 这个条件被满足 的可能
+            //取这个名字的原因可能是表示最近一次追踪到这个地图点是在哪一帧
+            //应该是已经添加过了
             if(pMP->mnTrackReferenceForFrame==mCurrentFrame.mnId)
                 continue;
             if(!pMP->isBad())
@@ -1876,12 +1880,12 @@ void Tracking::UpdateLocalPoints()
  * @brief 更新局部关键帧，called by UpdateLocalMap()
  *
  * 遍历当前帧的MapPoints，将观测到这些MapPoints的关键帧和相邻的关键帧取出，更新 mvpLocalKeyFrames
- * //?怎么定义"相邻关键帧?"
+ * //?怎么定义"相邻关键帧?" -- 从程序中来看指的就是他们的具有较好的共视关键帧,以及其父关键帧和子关键帧
  */
 void Tracking::UpdateLocalKeyFrames()
 {
     // Each map point vote for the keyframes in which it has been observed
-    // 步骤1：遍历当前帧的MapPoints，记录所有能观测到当前帧MapPoints的关键帧
+    // step 1：遍历当前帧的MapPoints，记录所有能观测到当前帧MapPoints的关键帧 -- 也就是投票
     map<KeyFrame*,int> keyframeCounter;
     for(int i=0; i<mCurrentFrame.N; i++)
     {
@@ -1892,6 +1896,7 @@ void Tracking::UpdateLocalKeyFrames()
             {
                 // 能观测到当前帧MapPoints的关键帧
                 const map<KeyFrame*,size_t> observations = pMP->GetObservations();
+                //这里由于一个地图点可以被多个关键帧观测到,因此对于每一次观测,都获得观测到这个地图点的关键帧,并且对关键帧进行投票
                 for(map<KeyFrame*,size_t>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
                     keyframeCounter[it->first]++;
             }
@@ -1902,15 +1907,18 @@ void Tracking::UpdateLocalKeyFrames()
         }
     }
 
+    //意味着没有任何一个关键这观测到当前的地图点
     if(keyframeCounter.empty())
         return;
 
+    //? 存储具有最多观测次数的关键帧?
     int max=0;
     KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);
 
-    // 步骤2：更新局部关键帧（mvpLocalKeyFrames），添加局部关键帧有三个策略
+    // step 2：更新局部关键帧（mvpLocalKeyFrames），添加局部关键帧有三个策略
     // 先清空局部关键帧
     mvpLocalKeyFrames.clear();
+    //? 提问:为什么要乘3呢? 
     mvpLocalKeyFrames.reserve(3*keyframeCounter.size());
 
     // All keyframes that observe a map point are included in the local map. Also check which keyframe shares most points
@@ -1922,7 +1930,8 @@ void Tracking::UpdateLocalKeyFrames()
 
         if(pKF->isBad())
             continue;
-
+        
+        //更新具有最大观测是-护目的关键帧
         if(it->second>max)
         {
             max=it->second;
@@ -1931,6 +1940,7 @@ void Tracking::UpdateLocalKeyFrames()
 
         mvpLocalKeyFrames.push_back(it->first);
         // mnTrackReferenceForFrame防止重复添加局部关键帧
+        //? 这里我可以理解成为,某个关键帧已经被设置为当前帧的 局部关键帧了吗?
         pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;
     }
 
@@ -1946,7 +1956,7 @@ void Tracking::UpdateLocalKeyFrames()
 
         KeyFrame* pKF = *itKF;
 
-        // 策略2.1:最佳共视的10帧
+        // 策略2.1:最佳共视的10帧; 如果共视帧不足10帧,那么就返回所有具有共视关系的关键帧
         const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);
         for(vector<KeyFrame*>::const_iterator itNeighKF=vNeighs.begin(), itEndNeighKF=vNeighs.end(); itNeighKF!=itEndNeighKF; itNeighKF++)
         {
@@ -1995,7 +2005,7 @@ void Tracking::UpdateLocalKeyFrames()
     }
 
     // V-D Kref： shares the most map points with current frame
-    // 步骤3：更新当前帧的参考关键帧，与自己共视程度最高的关键帧作为参考关键帧
+    // step 3：更新当前帧的参考关键帧，与自己共视程度最高的关键帧作为参考关键帧
     if(pKFmax)
     {
         mpReferenceKF = pKFmax;
@@ -2003,17 +2013,18 @@ void Tracking::UpdateLocalKeyFrames()
     }
 }
 
+//重定位过程
 bool Tracking::Relocalization()
 {
     // Compute Bag of Words Vector
-    // 步骤1：计算当前帧特征点的Bow映射
+    // step 1：计算当前帧特征点的Bow映射
     mCurrentFrame.ComputeBoW();
 
     // Relocalization is performed when tracking is lost
     // Track Lost: Query KeyFrame Database for keyframe candidates for relocalisation
-    // 步骤2：找到与当前帧相似的候选关键帧
+    // step 2：找到与当前帧相似的候选关键帧
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame);
-
+    //没有和当前帧相似的候选关键帧?完蛋,退出
     if(vpCandidateKFs.empty())
         return false;
 
@@ -2022,27 +2033,32 @@ bool Tracking::Relocalization()
     // We perform first an ORB matching with each candidate
     // If enough matches are found we setup a PnP solver
     ORBmatcher matcher(0.75,true);
-
+    //每个关键帧的解算器
     vector<PnPsolver*> vpPnPsolvers;
     vpPnPsolvers.resize(nKFs);
-
+    //每个关键帧和当前帧中特征点的匹配关系
     vector<vector<MapPoint*> > vvpMapPointMatches;
     vvpMapPointMatches.resize(nKFs);
-
+    //放弃某个关键帧的标记
     vector<bool> vbDiscarded;
     vbDiscarded.resize(nKFs);
 
+    //有效的候选关键帧数目
     int nCandidates=0;
 
+    //遍历所有的候选关键帧
     for(int i=0; i<nKFs; i++)
     {
         KeyFrame* pKF = vpCandidateKFs[i];
         if(pKF->isBad())
+            //? 前面的查找候选关键帧的时候,为什么不会检查一下这个呢? 为什么非要返回bad的关键帧呢? 关键帧为bad意味着什么呢? 
+            //? 此外这个变量的初始值也不一定全部都是false吧
             vbDiscarded[i] = true;
         else
         {
-            // 步骤3：通过BoW进行匹配
+            // step 3：通过BoW进行匹配
             int nmatches = matcher.SearchByBoW(pKF,mCurrentFrame,vvpMapPointMatches[i]);
+            //如果和当前帧的匹配数小于15,那么只能放弃这个关键帧
             if(nmatches<15)
             {
                 vbDiscarded[i] = true;
@@ -2052,35 +2068,50 @@ bool Tracking::Relocalization()
             {
                 // 初始化PnPsolver
                 PnPsolver* pSolver = new PnPsolver(mCurrentFrame,vvpMapPointMatches[i]);
-                pSolver->SetRansacParameters(0.99,10,300,4,0.5,5.991);
+                pSolver->SetRansacParameters(
+                    0.99,   //? 概率
+                    10,     //最小内点数
+                    300,    //最大迭代次数
+                    4,      //? 最小集?
+                    0.5,    //退出迭代的误差
+                    5.991); //? 目测是自由度为2的卡方检验的阈值?
                 vpPnPsolvers[i] = pSolver;
                 nCandidates++;
             }
         }
-    }
+    }//遍历所有的候选关键帧,确定出满足进一步要求的候选关键帧并且为其创建pnp优化器
 
     // Alternatively perform some iterations of P4P RANSAC
     // Until we found a camera pose supported by enough inliers
+    //? 这里的 P4P RANSAC 是啥意思啊
+    //是否已经找到了想匹配的关键帧的标志
     bool bMatch = false;
     ORBmatcher matcher2(0.9,true);
 
+    //通过一系列骚操作,直到找到能够进行重定位的\匹配上的关键帧
     while(nCandidates>0 && !bMatch)
     {
+        //遍历当前所有的候选关键帧
         for(int i=0; i<nKFs; i++)
         {
+            //如果刚才已经放弃了,那么这里也放弃了
             if(vbDiscarded[i])
                 continue;
-
+    
             // Perform 5 Ransac Iterations
-            vector<bool> vbInliers;
+            //内点标记
+            vector<bool> vbInliers;     
+            //内点数
             int nInliers;
+            //? 
             bool bNoMore;
 
-            // 步骤4：通过EPnP算法估计姿态
+            // step 4：通过EPnP算法估计姿态
             PnPsolver* pSolver = vpPnPsolvers[i];
             cv::Mat Tcw = pSolver->iterate(5,bNoMore,vbInliers,nInliers);
 
             // If Ransac reachs max. iterations discard keyframe
+            //? 这里的迭代计算达到了最大值,应该怎么理解? 
             if(bNoMore)
             {
                 vbDiscarded[i]=true;
@@ -2091,11 +2122,11 @@ bool Tracking::Relocalization()
             if(!Tcw.empty())
             {
                 Tcw.copyTo(mCurrentFrame.mTcw);
-
+                //成功被再次找到的地图点的集合,其实就是经过RANSAC之后的内点
                 set<MapPoint*> sFound;
 
                 const int np = vbInliers.size();
-
+                //遍历所有内点
                 for(int j=0; j<np; j++)
                 {
                     if(vbInliers[j])
@@ -2107,73 +2138,97 @@ bool Tracking::Relocalization()
                         mCurrentFrame.mvpMapPoints[j]=NULL;
                 }
 
-                // 步骤5：通过PoseOptimization对姿态进行优化求解
+                // step 5：通过PoseOptimization对姿态进行优化求解
+                //只优化位姿,不优化地图点的坐标;返回的是内点的数量
                 int nGood = Optimizer::PoseOptimization(&mCurrentFrame);
 
+                //? 如果优化之后的内点数目不多,注意这里是直接跳过了本次循环,但是却没有放弃当前的这个关键帧
                 if(nGood<10)
                     continue;
-
+                //删除外点对应的地图点
                 for(int io =0; io<mCurrentFrame.N; io++)
                     if(mCurrentFrame.mvbOutlier[io])
                         mCurrentFrame.mvpMapPoints[io]=static_cast<MapPoint*>(NULL);
 
                 // If few inliers, search by projection in a coarse window and optimize again
-                // 步骤6：如果内点较少，则通过投影的方式对之前未匹配的点进行匹配，再进行优化求解
+                // step 6：如果内点较少，则通过投影的方式对之前未匹配的点进行匹配，再进行优化求解
+                // 前面的匹配关系是用词袋匹配过程得到的
                 if(nGood<50)
                 {
-                    int nadditional =matcher2.SearchByProjection(mCurrentFrame,vpCandidateKFs[i],sFound,10,100);
+                    int nadditional =matcher2.SearchByProjection(
+                        mCurrentFrame,          //当前帧
+                        vpCandidateKFs[i],      //关键帧
+                        sFound,                 //已经找到的地图点集合
+                        10,                     //窗口阈值
+                        100);                   //ORB描述子距离
 
+                    //如果通过投影过程获得了比较多的特征点
                     if(nadditional+nGood>=50)
                     {
+                        //? 这么说在执行上面的 SearchByProjection 函数的时候, 地图点的信息已经更新了? 那么特征点呢? 有点晕 
                         nGood = Optimizer::PoseOptimization(&mCurrentFrame);
 
                         // If many inliers but still not enough, search by projection again in a narrower window
                         // the camera has been already optimized with many points
+                        //如果这样依赖内点数还是比较少的话,就使用更小的窗口搜索投影点;由于相机位姿已经使用了更多的点进行了优化,所以可以认为使用更小的窗口搜索能够取得意料之内的效果
+                        //我觉得可以理解为 垂死挣扎 2333
                         if(nGood>30 && nGood<50)
                         {
+                            //重新进行搜索
                             sFound.clear();
                             for(int ip =0; ip<mCurrentFrame.N; ip++)
                                 if(mCurrentFrame.mvpMapPoints[ip])
                                     sFound.insert(mCurrentFrame.mvpMapPoints[ip]);
-                            nadditional =matcher2.SearchByProjection(mCurrentFrame,vpCandidateKFs[i],sFound,3,64);
+                            nadditional =matcher2.SearchByProjection(
+                                mCurrentFrame,          //当前帧
+                                vpCandidateKFs[i],      //候选的关键帧
+                                sFound,                 //已经找到的地图点
+                                3,                      //新的窗口阈值
+                                64);                    //ORB距离? 
 
                             // Final optimization
                             if(nGood+nadditional>=50)
                             {
                                 nGood = Optimizer::PoseOptimization(&mCurrentFrame);
-
+                                //更新地图点
                                 for(int io =0; io<mCurrentFrame.N; io++)
                                     if(mCurrentFrame.mvbOutlier[io])
                                         mCurrentFrame.mvpMapPoints[io]=NULL;
                             }
-                        }
-                    }
-                }
+                            //如果还是不能够满足就放弃了
+                        }//如果地图点还是比较少的话
+                    }//如果通过投影过程获得了比较多的特征点
+                }//如果内点较少,那么尝试通过投影关系再次进行匹配
 
                 // If the pose is supported by enough inliers stop ransacs and continue
+                //如果对于当前的关键帧已经有足够的内点(50个)了,那么就认为当前的这个关键帧已经和当前帧匹配上了
                 if(nGood>=50)
                 {
                     bMatch = true;
                     break;
                 }
-            }
-        }
+            }//遍历所有的候选关键帧
+        }//一直运行,知道已经没有足够的关键帧,或者是已经有成功匹配上的关键帧
     }
 
+    //折腾了这么久还是没有匹配上
     if(!bMatch)
     {
         return false;
     }
     else
     {
+        //如果匹配上了,说明当前帧重定位成功了(也就是在上面的优化过程中,当前帧已经拿到了属于自己的位姿).因此记录当前帧的id
         mnLastRelocFrameId = mCurrentFrame.mnId;
         return true;
     }
+}//重定位
 
-}
-
+//整个追踪线程执行复位操作
 void Tracking::Reset()
 {
+    //基本上是挨个请求各个线程终止
+
     if(mpViewer)
     {
         mpViewer->RequestStop();
@@ -2200,6 +2255,7 @@ void Tracking::Reset()
     // Clear Map (this erase MapPoints and KeyFrames)
     mpMap->clear();
 
+    //然后复位各种变量
     KeyFrame::nNextId = 0;
     Frame::nNextId = 0;
     mState = NO_IMAGES_YET;
@@ -2219,6 +2275,7 @@ void Tracking::Reset()
         mpViewer->Release();
 }
 
+//? 目测是根据配置文件中的参数重新改变已经设置在系统中的参数,但是当前文件中没有找到对它的调用
 void Tracking::ChangeCalibration(const string &strSettingPath)
 {
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
@@ -2249,6 +2306,7 @@ void Tracking::ChangeCalibration(const string &strSettingPath)
 
     mbf = fSettings["Camera.bf"];
 
+    //做标记,表示在初始化帧的时候将会是第一个帧,要对它进行一些特殊的初始化操作
     Frame::mbInitialComputations = true;
 }
 
@@ -2256,7 +2314,5 @@ void Tracking::InformOnlyTracking(const bool &flag)
 {
     mbOnlyTracking = flag;
 }
-
-
 
 } //namespace ORB_SLAM

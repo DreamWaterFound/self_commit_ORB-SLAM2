@@ -79,6 +79,16 @@ public:
 
     // Project MapPoints seen in KeyFrame into the Frame and search matches.
     // Used in relocalisation (Tracking)
+    /**
+     * @brief 通过投影的方式将关键帧中的地图点投影到当前帧中,并且进行匹配
+     * 
+     * @param[in] CurrentFrame      当前帧
+     * @param[in] pKF               关键帧
+     * @param[in] sAlreadyFound     已经寻找得到的地图点
+     * @param[in] th                //? 阈值, 目测为窗口大小的阈值
+     * @param[in] ORBdist           //? 什么ORB距离
+     * @return int                  //? 新得到的点的数目
+     */
     int SearchByProjection(Frame &CurrentFrame, KeyFrame* pKF, const std::set<MapPoint*> &sAlreadyFound, const float th, const int ORBdist);
 
     // Project MapPoints using a Similarity Transformation and search matches.
