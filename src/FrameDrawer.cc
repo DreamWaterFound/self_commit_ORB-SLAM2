@@ -182,7 +182,7 @@ void FrameDrawer::DrawTextInfo(cv::Mat &im, int nState, cv::Mat &imText)
         int nMPs = mpMap->MapPointsInMap();
         s << "KFs: " << nKFs << ", MPs: " << nMPs << ", Matches: " << mnTracked;
         //在视觉里程计中匹配到的
-        if(mnTrackedVwentiO>0)
+        if(mnTrackedVO>0)
             s << ", + VO matches: " << mnTrackedVO;
     }
     else if(nState==Tracking::LOST)

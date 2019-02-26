@@ -1711,6 +1711,14 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, KeyFrame *pKF, const set
                 if(dist3D<minDistance || dist3D>maxDistance)
                     continue;
 
+                //之前这句话有误操作,如果编译不正确或者运行不正确查看这里
+                int nPredictedLevel = pMP->PredictScale(dist3D,&CurrentFrame);
+
+                // Search in a window
+                //之前这句话有误操作,如果编译不正确或者运行不正确查看这里
+                const float radius = th*CurrentFrame.mvScaleFactors[nPredictedLevel];
+
+
                 const vector<size_t> vIndices2 = CurrentFrame.GetFeaturesInArea(u, v, radius, nPredictedLevel-1, nPredictedLevel+1);
 
                 if(vIndices2.empty())

@@ -2084,11 +2084,11 @@ bool Tracking::Relocalization()
     // Alternatively perform some iterations of P4P RANSAC
     // Until we found a camera pose supported by enough inliers
     //? 这里的 P4P RANSAC 是啥意思啊
-    //是否已经找到了想匹配的关键帧的标志
+    //是否已经找到相匹配的关键帧的标志
     bool bMatch = false;
     ORBmatcher matcher2(0.9,true);
 
-    //通过一系列骚操作,直到找到能够进行重定位的\匹配上的关键帧
+    //通过一系列骚操作,直到找到能够进行重定位的匹配上的关键帧
     while(nCandidates>0 && !bMatch)
     {
         //遍历当前所有的候选关键帧

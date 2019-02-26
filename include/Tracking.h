@@ -61,6 +61,10 @@ class LocalMapping;
 class LoopClosing;
 class System;
 
+/**
+ * @brief 追踪功能
+ * 
+ */
 class Tracking
 {  
 

@@ -478,6 +478,7 @@ float MapPoint::GetMaxDistanceInvariance()
 //           log(dmax/d)
 // m = ceil(------------)
 //            log(1.2)
+// 这里吴博师兄的PPT中貌似有讲
 int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 {
     float ratio;
