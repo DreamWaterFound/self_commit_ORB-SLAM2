@@ -177,7 +177,7 @@ void Viewer::Run()
         glClearColor(1.0f,1.0f,1.0f,1.0f);
         //绘制当前相机
         mpMapDrawer->DrawCurrentCamera(Twc);
-        //绘制关键帧和公式图
+        //绘制关键帧和共视图
         if(menuShowKeyFrames || menuShowGraph)
             mpMapDrawer->DrawKeyFrames(menuShowKeyFrames,menuShowGraph);
         //绘制地图点
