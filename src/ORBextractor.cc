@@ -1508,7 +1508,7 @@ static void computeDescriptors(const Mat& image, 				//某张图像
 }
 
 //重载括号运算符
-//TODO 关键是为什么要重载括号运算符啊，这个是有什么目的吗？
+//TODO 关键是为什么要重载括号运算符啊，这个是有什么目的吗？ --  目前看应该就是..好玩
 void ORBextractor::operator()( 
 		InputArray _image, 				//输入图像
 		InputArray _mask, 				//TODO 用于辅助进行图像处理的掩膜？进行什么处理？但是在函数中并没有用到

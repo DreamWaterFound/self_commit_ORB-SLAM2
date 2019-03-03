@@ -169,7 +169,9 @@ int main(int argc, char **argv)
 
     // Save camera trajectory
     //保存最终的相机轨迹
-    SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+    //SLAM.SaveTrajectoryTUM("CameraTrajectory.txt");
+    SLAM.SaveTrajectoryTUM("./CameraTrajectory2.txt");
+
     SLAM.SaveKeyFrameTrajectoryTUM("KeyFrameTrajectory.txt");   
 
     return 0;
