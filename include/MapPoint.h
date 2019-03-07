@@ -73,9 +73,9 @@ public:
     MapPoint(const cv::Mat &Pos,  Map* pMap, Frame* pFrame, const int &idxF);
 
     /**
-     * @brief 设置世界坐标系 //?
+     * @brief 设置世界坐标系下地图点的位姿 
      * 
-     * @param[in] Pos 位姿 //? 
+     * @param[in] Pos 世界坐标系下地图点的位姿 
      */
     void SetWorldPos(const cv::Mat &Pos);
     /**
@@ -109,10 +109,13 @@ public:
     int Observations();
 
     /**
-     * @brief 给当前地图点添加一个观测
-     * 
-     * @param[in] pKF 观测到当前地图点的关键帧
-     * @param[in] idx //? 是什么
+     * @brief 添加观测
+     *
+     * 记录哪些KeyFrame的那个特征点能观测到该MapPoint \n
+     * 并增加观测的相机数目nObs，单目+1，双目或者grbd+2
+     * 这个函数是建立关键帧共视关系的核心函数，能共同观测到某些MapPoints的关键帧是共视关键帧
+     * @param[in] pKF KeyFrame,观测到当前地图点的关键帧
+     * @param[in] idx MapPoint在KeyFrame中的索引
      */
     void AddObservation(KeyFrame* pKF,size_t idx);
     /**
@@ -289,6 +292,7 @@ protected:
     cv::Mat mDescriptor; ///< 通过 ComputeDistinctiveDescriptors() 得到的最优描述子
 
     /// Reference KeyFrame
+    //? 什么意思? 就是生成它的关键帧吗?
     KeyFrame* mpRefKF;
 
     /// Tracking counters
