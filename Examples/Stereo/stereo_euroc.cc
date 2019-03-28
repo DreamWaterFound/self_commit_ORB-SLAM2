@@ -46,8 +46,10 @@ int main(int argc, char **argv)
     vector<string> vstrImageLeft;
     vector<string> vstrImageRight;
     vector<double> vTimeStamp;
+    //获得图像位置
     LoadImages(string(argv[3]), string(argv[4]), string(argv[5]), vstrImageLeft, vstrImageRight, vTimeStamp);
 
+    //检查图像序列是否为空
     if(vstrImageLeft.empty() || vstrImageRight.empty())
     {
         cerr << "ERROR: No images in provided path." << endl;
@@ -69,23 +71,28 @@ int main(int argc, char **argv)
     }
 
     cv::Mat K_l, K_r, P_l, P_r, R_l, R_r, D_l, D_r;
+    //相机内参
     fsSettings["LEFT.K"] >> K_l;
     fsSettings["RIGHT.K"] >> K_r;
-
+    //TODO 不知道目测是经过双目立体矫正后的投影矩阵
     fsSettings["LEFT.P"] >> P_l;
     fsSettings["RIGHT.P"] >> P_r;
 
+    //TODO 不知道
     fsSettings["LEFT.R"] >> R_l;
     fsSettings["RIGHT.R"] >> R_r;
 
+    //去畸变参数
     fsSettings["LEFT.D"] >> D_l;
     fsSettings["RIGHT.D"] >> D_r;
 
+    //图像尺寸
     int rows_l = fsSettings["LEFT.height"];
     int cols_l = fsSettings["LEFT.width"];
     int rows_r = fsSettings["RIGHT.height"];
     int cols_r = fsSettings["RIGHT.width"];
 
+    //参数合法性检查(不为空就行)
     if(K_l.empty() || K_r.empty() || P_l.empty() || P_r.empty() || R_l.empty() || R_r.empty() || D_l.empty() || D_r.empty() ||
             rows_l==0 || rows_r==0 || cols_l==0 || cols_r==0)
     {
@@ -93,8 +100,20 @@ int main(int argc, char **argv)
         return -1;
     }
 
+    //存储四个映射矩阵
     cv::Mat M1l,M2l,M1r,M2r;
-    cv::initUndistortRectifyMap(K_l,D_l,R_l,P_l.rowRange(0,3).colRange(0,3),cv::Size(cols_l,rows_l),CV_32F,M1l,M2l);
+    //根据相机内参,去畸变参数以及立体矫正后,得到的新的相机内参来计算从原始图像到处理后理想双目图像的映射矩阵
+    // HERE 
+    //这个函数的定义参考:[https://blog.csdn.net/u013341645/article/details/78710740]
+    cv::initUndistortRectifyMap(            //计算无畸变和修正转换映射
+        K_l,                                //输入的相机内参矩阵 (单目标定阶段得到的相机内参矩阵)
+        D_l,                                //单目标定阶段得到的相机的去畸变参数
+        R_l,                                //可选的修正变换矩阵,3*3, 从 cv::stereoRectify 得来.如果这个矩阵为恐惧真,那么就将会被设置成为单位矩阵
+        P_l.rowRange(0,3).colRange(0,3),    //新的相机内参矩阵
+        cv::Size(cols_l,rows_l),            //在去畸变之前的图像尺寸
+        CV_32F,                             //第一个输出映射的类型
+        M1l,                                //第一个输出映射表
+        M2l);                               //第二个输出映射
     cv::initUndistortRectifyMap(K_r,D_r,R_r,P_r.rowRange(0,3).colRange(0,3),cv::Size(cols_r,rows_r),CV_32F,M1r,M2r);
 
 
@@ -116,9 +135,11 @@ int main(int argc, char **argv)
     for(int ni=0; ni<nImages; ni++)
     {
         // Read left and right images from file
+        //读取原始图像
         imLeft = cv::imread(vstrImageLeft[ni],CV_LOAD_IMAGE_UNCHANGED);
         imRight = cv::imread(vstrImageRight[ni],CV_LOAD_IMAGE_UNCHANGED);
 
+        //合法性检查
         if(imLeft.empty())
         {
             cerr << endl << "Failed to load image at: "
@@ -133,7 +154,15 @@ int main(int argc, char **argv)
             return 1;
         }
 
-        cv::remap(imLeft,imLeftRect,M1l,M2l,cv::INTER_LINEAR);
+        //NOTE 送入系统进行处理之前,是完成了立体矫正的处理的(对于每个点)
+        //HERE
+        //参考博客 [https://blog.csdn.net/sss_369/article/details/52983123]
+        cv::remap(              //重映射，就是把一幅图像中某位置的像素放置到另一个图片指定位置的过程。
+            imLeft,             //输入图像
+            imLeftRect,         //输出图像
+            M1l,                //第一个映射矩阵表
+            M2l,                //第二个映射矩阵
+            cv::INTER_LINEAR);
         cv::remap(imRight,imRightRect,M1r,M2r,cv::INTER_LINEAR);
 
         double tframe = vTimeStamp[ni];
@@ -146,6 +175,7 @@ int main(int argc, char **argv)
 #endif
 
         // Pass the images to the SLAM system
+        //将处理后的图像送入到系统中
         SLAM.TrackStereo(imLeftRect,imRightRect,tframe);
 
 #ifdef COMPILEDWITHC11
@@ -189,6 +219,7 @@ int main(int argc, char **argv)
     return 0;
 }
 
+//加载图像
 void LoadImages(const string &strPathLeft, const string &strPathRight, const string &strPathTimes,
                 vector<string> &vstrImageLeft, vector<string> &vstrImageRight, vector<double> &vTimeStamps)
 {
