@@ -70,7 +70,7 @@ void Map::AddMapPoint(MapPoint *pMP)
  * @brief Erase MapPoint from the map
  * @param pMP MapPoint
  */
-//从地图中删除地图点
+//从地图中删除地图点,但是其实这个地图点所占用的内存空间并没有被释放
 void Map::EraseMapPoint(MapPoint *pMP)
 {
     unique_lock<mutex> lock(mMutexMap);

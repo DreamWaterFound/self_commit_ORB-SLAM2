@@ -1534,7 +1534,6 @@ static void computeDescriptors(const Mat& image, 				//某张图像
 							 descriptors.ptr((int)i));	//提取出来的描述子的保存位置
 }
 
-//HERE
 //重载括号运算符
 //关键是为什么要重载括号运算符啊，这个是有什么目的吗？ --  目前看应该就是..好玩
 void ORBextractor::operator()( 
