@@ -78,6 +78,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
             continue;
             
         // 通过距离预测的金字塔层数，该层数相对于当前的帧
+        //REVIEW
         const int &nPredictedLevel = pMP->mnTrackScaleLevel;
 
         // The size of the window will depend on the viewing direction
@@ -113,9 +114,15 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
                 if(F.mvpMapPoints[idx]->Observations()>0)
                     continue;
 
+            //如果是双目数据
             if(F.mvuRight[idx]>0)
             {
+                //计算在X轴上的投影误差
                 const float er = fabs(pMP->mTrackProjXR-F.mvuRight[idx]);
+                //超过阈值,说明这个点不行,丢掉.
+                //这里的阈值定义是以给定的搜索范围r为参考,然后考虑到越近的点(nPredictedLevel越大), 相机运动时对其产生的影响也就越大,
+                //因此需要扩大其搜索空间.
+                //当给定缩放倍率为1.2的时候, mvScaleFactors 中的数据是: 1 1.2 1.2^2 1.2^3 ... 
                 if(er>r*F.mvScaleFactors[nPredictedLevel])
                     continue;
             }

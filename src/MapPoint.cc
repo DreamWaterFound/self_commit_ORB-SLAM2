@@ -55,12 +55,12 @@ MapPoint::MapPoint(const cv::Mat &Pos,  //地图点的世界坐标
     mnBAGlobalForKF(0),                     //? 
     mpRefKF(pRefKF),                        //? 参考关键帧? 是什么意思
     mnVisible(1),                           //在帧中的可视次数
-    mnFound(1),                             //? 被找到的次数 和上面的有什么不同?
+    mnFound(1),                             //被找到的次数 和上面的相比要求能够匹配上
     mbBad(false),                           //坏点标记
-    mpReplaced(static_cast<MapPoint*>(NULL)), //?
-    mfMinDistance(0),                       //?
-    mfMaxDistance(0),                       //从属地图
-    mpMap(pMap)                             
+    mpReplaced(static_cast<MapPoint*>(NULL)), //替换掉当前地图点的点
+    mfMinDistance(0),                       //当前地图点在某帧下,可信赖的被找到时其到关键帧光心距离的下界
+    mfMaxDistance(0),                       //上界
+    mpMap(pMap)                             //从属地图
 {
     Pos.copyTo(mWorldPos);
     //平均观测方向初始化为0
@@ -313,7 +313,6 @@ bool MapPoint::isBad()
     unique_lock<mutex> lock2(mMutexPos);
     return mbBad;
 }
-//HERE
 
 /**
  * @brief Increase Visible
@@ -471,6 +470,8 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
  * @brief 更新平均观测方向以及观测距离范围
  *
  * 由于一个MapPoint会被许多相机观测到，因此在插入关键帧后，需要更新相应变量
+ * 创建新的关键帧的时候会调用
+ * 
  * @see III - C2.2 c2.4
  */
 void MapPoint::UpdateNormalAndDepth()
@@ -492,7 +493,7 @@ void MapPoint::UpdateNormalAndDepth()
     if(observations.empty())
         return;
 
-    //初始值为0向量？ TODO 
+    //初始值为0向量用于累加;但是放心每次累加的变量都是经过归一化之后的
     cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
     int n=0;
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
@@ -542,12 +543,17 @@ float MapPoint::GetMaxDistanceInvariance()
 // m = ceil(------------)
 //            log(1.2)
 // 这里吴博师兄的PPT中貌似有讲
+// 这个函数的作用有二:
+// 一个是在判断
+// 二是在进行投影匹配的时候会给定特征点的搜索范围,考虑到处于不同尺度(也就是距离相机远近,位于图像金字塔中不同图层)的特征点受到相机旋转的影响不同,
+// 因此会希望距离相机近的点的搜索范围更大一点,距离相机更远的点的搜索范围更小一点,所以要在这里,根据点到关键帧/帧的距离来估计它在当前的关键帧/帧中,
+// 会大概处于哪个尺度
 int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 {
     float ratio;
     {
         unique_lock<mutex> lock(mMutexPos);
-        // mfMaxDistance = ref_dist*levelScaleFactor为参考帧考虑上尺度后的距离
+        // mfMaxDistance = ref_dist*levelScaleFactor 为参考帧考虑上尺度后的距离
         // ratio = mfMaxDistance/currentDist = ref_dist/cur_dist
         ratio = mfMaxDistance/currentDist;
     }
