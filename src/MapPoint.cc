@@ -323,6 +323,7 @@ bool MapPoint::isBad()
  * 2. 该MapPoint被这些帧观测到，但并不一定能和这些帧的特征点匹配上
  *    例如：有一个MapPoint（记为M），在某一帧F的视野范围内，
  *    但并不表明该点M可以和F这一帧的某个特征点能匹配上
+ * TODO  所以说，found 就是表示匹配上了嘛？
  */
 void MapPoint::IncreaseVisible(int n)
 {
@@ -342,6 +343,7 @@ void MapPoint::IncreaseFound(int n)
     mnFound+=n;
 }
 
+// 计算被找到的比例
 float MapPoint::GetFoundRatio()
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -362,6 +364,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     map<KeyFrame*,size_t> observations;
 
+    //获取所有观测
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         if(mbBad)
@@ -395,6 +398,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
 	Distances.resize(N, vector<float>(N, 0));
 	for (size_t i = 0; i<N; i++)
     {
+        //和自己的距离当然是0
         Distances[i][i]=0;
         for(size_t j=i+1;j<N;j++)
         {
@@ -435,12 +439,14 @@ void MapPoint::ComputeDistinctiveDescriptors()
     }
 }
 
+//获取当前地图点的描述子
 cv::Mat MapPoint::GetDescriptor()
 {
     unique_lock<mutex> lock(mMutexFeatures);
     return mDescriptor.clone();
 }
 
+//获取当前地图点在某个关键帧的观测中，对应的特征点的ID
 int MapPoint::GetIndexInKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -486,6 +492,7 @@ void MapPoint::UpdateNormalAndDepth()
     if(observations.empty())
         return;
 
+    //初始值为0向量？ TODO 
     cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
     int n=0;
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
