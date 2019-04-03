@@ -155,7 +155,8 @@ public:
     bool isBad();
 
     /**
-     * @brief 使用某个地图点来替换掉当前地图点的数据
+     * @brief 在形成闭环的时候，会更新 KeyFrame 与 MapPoint 之间的关系
+     * 其实也就是相互替换? 
      * 
      * @param[in] pMP 地图点
      */
@@ -218,7 +219,7 @@ public:
      */
     void UpdateNormalAndDepth();
 
-    // 获取当前地图点在其参考关键帧中
+    //?
     float GetMinDistanceInvariance();
     //?
     float GetMaxDistanceInvariance();
@@ -282,8 +283,7 @@ protected:
 
     // Mean viewing direction
     // 该MapPoint平均观测方向
-    //做这个的原因是,在进行重投影匹配的时候需要在投影点的邻域中搜索,如果在那个帧中观测到该地图点的视角比较大\偏离这个值的话,就要相应
-    //地扩大这个邻域大大小
+    //? 为什么要做这个呢? 
     cv::Mat mNormalVector;
 
     // Best descriptor to fast matching
@@ -293,7 +293,7 @@ protected:
     cv::Mat mDescriptor; ///< 通过 ComputeDistinctiveDescriptors() 得到的最优描述子
 
     /// Reference KeyFrame
-    //生成它的关键帧
+    //? 什么意思? 就是生成它的关键帧吗?
     KeyFrame* mpRefKF;
 
     /// Tracking counters
@@ -302,7 +302,7 @@ protected:
 
     /// Bad flag (we do not currently erase MapPoint from memory)
     bool mbBad;
-    //替换本地图点的点
+    //? 替换本地图点的点? 
     MapPoint* mpReplaced;
 
     /// Scale invariance distances

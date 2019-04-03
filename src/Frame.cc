@@ -147,7 +147,7 @@ Frame::Frame(const cv::Mat &imLeft, 			//左目图像
     mvScaleFactors = mpORBextractorLeft->GetScaleFactors();
 	//同样获取每层图像缩放因子的倒数
     mvInvScaleFactors = mpORBextractorLeft->GetInverseScaleFactors();
-	//TODO 不知道获取的这个sigma以及sigma^2有什么实际含义。并且在Frame.cpp这里是没有用到。
+	//高斯模糊的时候，使用的方差
     mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();
 	//获取sigma^2的倒数
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
