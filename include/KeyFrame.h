@@ -30,8 +30,6 @@
 */
 
 
-
-
 #ifndef KEYFRAME_H
 #define KEYFRAME_H
 
@@ -44,7 +42,6 @@
 #include "KeyFrameDatabase.h"
 
 #include <mutex>
-
 
 namespace ORB_SLAM2
 {
@@ -102,6 +99,10 @@ public:
      * @param weight 权重，该关键帧与pKF共同观测到的3d点数量
      */
     void AddConnection(KeyFrame* pKF, const int &weight);
+    /**
+     * @brief 删除当前关键帧和指定关键帧之间的共视关系
+     * @param[in] pKF 要删除的共视关系
+     */
     void EraseConnection(KeyFrame* pKF);
     /** @brief 更新图的连接  */
     void UpdateConnections();
@@ -175,7 +176,15 @@ public:
     bool hasChild(KeyFrame* pKF);
 
     // Loop Edges
+    /**
+     * @brief 给当前关键帧添加回环边，回环边连接了形成闭环关系的关键帧
+     * @param[in] pKF  和当前关键帧形成闭环关系的关键帧
+     */
     void AddLoopEdge(KeyFrame* pKF);
+    /**
+     * @brief 获取和当前关键帧形成闭环关系的关键帧
+     * @return std::set<KeyFrame*> 结果
+     */
     std::set<KeyFrame*> GetLoopEdges();
 
     // ====================== MapPoint observation functions ==================================
@@ -225,21 +234,49 @@ public:
     MapPoint* GetMapPoint(const size_t &idx);
 
     // KeyPoint functions
+    /**
+     * @brief 获取某个特征点的邻域中的特征点id
+     * @param[in] x 特征点坐标
+     * @param[in] y 特征点坐标
+     * @param[in] r 邻域大小(半径)
+     * @return std::vector<size_t> 在这个邻域内找到的特征点索引的集合
+     */
     std::vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r) const;
+    /**
+     * @brief Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
+     * @param  i 第i个keypoint
+     * @return   3D点（相对于世界坐标系）
+     */
     cv::Mat UnprojectStereo(int i);
 
     // Image
+    /**
+     * @brief 判断某个点是否在当前关键帧的图像中
+     * @param[in] x 点的坐标
+     * @param[in] y 点的坐标
+     * @return true 
+     * @return false 
+     */
     bool IsInImage(const float &x, const float &y) const;
 
     // Enable/Disable bad flag changes
+    /** @brief 设置当前关键帧不要在优化的过程中被删除  */
     void SetNotErase();
+    /** @brief 准备删除当前的这个关键帧 */
     void SetErase();
 
     // Set/check bad flag
+    /** @brief 真正地执行删除关键帧的操作 */
     void SetBadFlag();
+    /** @brief 返回当前关键帧是否已经完蛋了 */
     bool isBad();
 
     // Compute Scene Depth (q=2 median). Used in monocular.
+    /**
+     * @brief 评估当前关键帧场景深度，q=2表示中值
+     * @param q q=2
+     * @return Median Depth
+     */
     float ComputeSceneMedianDepth(const int q);
 
     /// 比较两个int型权重的大小的比较函数
@@ -248,6 +285,7 @@ public:
         return a>b;
     }
 
+    // ? 暂时没有使用到
     static bool lId(KeyFrame* pKF1, KeyFrame* pKF2)
 	{
         return pKF1->mnId<pKF2->mnId;
@@ -261,12 +299,14 @@ public:
     static long unsigned int nNextId;
     /// 在nNextID的基础上加1就得到了mnID，为当前KeyFrame的ID号
     long unsigned int mnId;
-    // 每个KeyFrame基本属性是它是一个Frame，KeyFrame初始化的时候需要Frame，
-    // mnFrameId记录了该KeyFrame是由哪个Frame初始化的
+    /// 每个KeyFrame基本属性是它是一个Frame，KeyFrame初始化的时候需要Frame，
+    /// mnFrameId记录了该KeyFrame是由哪个Frame初始化的
     const long unsigned int mnFrameId;
 
+    /// 时间戳
     const double mTimeStamp;
 
+    // ? 既然这么多和Frame重复的地方,为什么不选择使用继承呢?
     // Grid (to speed up feature matching)
     // 和Frame类中的定义相同
     const int mnGridCols;
@@ -313,7 +353,7 @@ public:
     DBoW2::BowVector mBowVec; ///< Vector of words to represent images 当前图像的词袋模型表示
     DBoW2::FeatureVector mFeatVec; ///< Vector of nodes with indexes of local features //?
 
-    // Pose relative to parent (this is computed when bad flag is activated)
+    /// Pose relative to parent (this is computed when bad flag is activated)
     cv::Mat mTcp;
 
     // Scale
@@ -324,7 +364,7 @@ public:
     const std::vector<float> mvLevelSigma2;// 尺度因子的平方
     const std::vector<float> mvInvLevelSigma2;
 
-    // Image bounds and calibration
+    /// Image bounds and calibration
     const int mnMinX;
     const int mnMinY;
     const int mnMaxX;
@@ -332,7 +372,7 @@ public:
     const cv::Mat mK;
 
 
-    // The following variables need to be accessed trough a mutex to be thread safe.
+    // The following variables need to be accessed trough a mutex to be thread safe. ---- 但是大哥..protected也不是这样设计使用的啊
 protected:
 
     // SE3 Pose and camera center
@@ -363,12 +403,12 @@ protected:
     bool mbFirstConnection;                     ///< 是否是第一次生成树
     KeyFrame* mpParent;                         ///< 当前关键帧的父关键帧
     std::set<KeyFrame*> mspChildrens;           ///< 存储当前关键帧的子关键帧
-    std::set<KeyFrame*> mspLoopEdges;
+    std::set<KeyFrame*> mspLoopEdges;           ///< 和当前关键帧形成回环关系的关键帧
 
     // Bad flags
-    bool mbNotErase;
-    bool mbToBeErased;
-    bool mbBad;    
+    bool mbNotErase;            ///< 当前关键帧已经和其他的关键帧形成了回环关系，因此在各种优化的过程中不应该被删除
+    bool mbToBeErased;          ///<
+    bool mbBad;                 ///< 
 
     float mHalfBaseline; ///< 对于双目相机来说,双目相机基线长度的一半. Only for visualization
 

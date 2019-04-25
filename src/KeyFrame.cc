@@ -551,9 +551,8 @@ bool KeyFrame::hasChild(KeyFrame *pKF)
     return mspChildrens.count(pKF);
 }
 
-//HERE
 
-
+// 给当前关键帧添加回环边，回环边连接了形成闭环关系的关键帧
 void KeyFrame::AddLoopEdge(KeyFrame *pKF)
 {
     unique_lock<mutex> lockCon(mMutexConnections);
@@ -561,22 +560,27 @@ void KeyFrame::AddLoopEdge(KeyFrame *pKF)
     mspLoopEdges.insert(pKF);
 }
 
+// 获取和当前关键帧形成闭环关系的关键帧
 set<KeyFrame*> KeyFrame::GetLoopEdges()
 {
     unique_lock<mutex> lockCon(mMutexConnections);
     return mspLoopEdges;
 }
 
+// 设置当前关键帧不要在优化的过程中被删除
 void KeyFrame::SetNotErase()
 {
     unique_lock<mutex> lock(mMutexConnections);
     mbNotErase = true;
 }
 
+// 删除当前的这个关键帧
 void KeyFrame::SetErase()
 {
     {
         unique_lock<mutex> lock(mMutexConnections);
+
+        // 如果当前关键帧和其他的关键帧没有形成回环关系,那么就删吧
         if(mspLoopEdges.empty())
         {
             mbNotErase = false;
@@ -591,10 +595,14 @@ void KeyFrame::SetErase()
     }
 }
 
+// 真正地执行删除关键帧的操作
 void KeyFrame::SetBadFlag()
 {   
+    // 首先处理一下应该删除但是最后删除不了的特殊情况
     {
         unique_lock<mutex> lock(mMutexConnections);
+
+        // 第0关键帧不允许被删除
         if(mnId==0)
             return;
         else if(mbNotErase)// mbNotErase表示不应该擦除该KeyFrame，于是把mbToBeErased置为true，表示已经擦除了，其实没有擦除
@@ -604,6 +612,7 @@ void KeyFrame::SetBadFlag()
         }
     }
 
+    // 接下来是真正的要进行删除关键帧的操作了 ---- 感觉这里的操作也应该是在互斥锁的保护中进行啊 ---- 不是,这里操作的是其他的关键帧的成员变量
     for(map<KeyFrame*,int>::iterator mit = mConnectedKeyFrameWeights.begin(), mend=mConnectedKeyFrameWeights.end(); mit!=mend; mit++)
         mit->first->EraseConnection(this);// 让其它的KeyFrame删除与自己的联系
 
@@ -611,6 +620,7 @@ void KeyFrame::SetBadFlag()
         if(mvpMapPoints[i])
             mvpMapPoints[i]->EraseObservation(this);// 让与自己有联系的MapPoint删除与自己的联系
 
+    // 然后对当前关键帧成员变量的操作
     {
         unique_lock<mutex> lock(mMutexConnections);
         unique_lock<mutex> lock1(mMutexFeatures);
@@ -619,7 +629,7 @@ void KeyFrame::SetBadFlag()
         mConnectedKeyFrameWeights.clear();
         mvpOrderedConnectedKeyFrames.clear();
 
-        // Update Spanning Tree
+        // Update Spanning Tree 主要是给子关键帧选择父关键帧
         set<KeyFrame*> sParentCandidates;
         sParentCandidates.insert(mpParent);
 
@@ -635,17 +645,20 @@ void KeyFrame::SetBadFlag()
             KeyFrame* pP;
 
             // 遍历每一个子关键帧，让它们更新它们指向的父关键帧
+            // ? 感觉这边的循环设计有问题呢, 这里是遍历每一个关键帧
             for(set<KeyFrame*>::iterator sit=mspChildrens.begin(), send=mspChildrens.end(); sit!=send; sit++)
             {
                 KeyFrame* pKF = *sit;
-                if(pKF->isBad())
+                // 跳过不行了的子关键帧
+                if(pKF->isBad())    
                     continue;
 
-                // Check if a parent candidate is connected to jubthe keyframe
-                // 子关键帧遍历每一个与它相连的关键帧（共视关键jub帧）
-                vector<KeyFrame*> vpConnected = pKF->GetVectorCjubovisibleKeyFrames();
-                for(size_t i=0, iend=vpConnected.size(); i<iendjub; i++)
-                {jub
+                // Check if a parent candidate is connected to the keyframe
+                // 子关键帧遍历每一个与它相连的关键帧（共视关键帧）    
+                vector<KeyFrame*> vpConnected = pKF->GetVectorCovisibleKeyFrames();
+
+                for(size_t i=0, iend=vpConnected.size(); i<iend; i++)
+                {
                     for(set<KeyFrame*>::iterator spcit=sParentCandidates.begin(), spcend=sParentCandidates.end(); spcit!=spcend; spcit++)
                     {
                     // 如果该帧的子节点和父节点（祖孙节点）之间存在连接关系（共视）
@@ -659,23 +672,26 @@ void KeyFrame::SetBadFlag()
                         if(vpConnected[i]->mnId == (*spcit)->mnId)
                         {
                             int w = pKF->GetWeight(vpConnected[i]);
+                            // 寻找并更新权值最大的那个共视关系
                             if(w>max)
                             {
-                                pC = pKF;
-                                pP = vpConnected[i];
-                                max = w;
-                                bContinue = true;
+                                pC = pKF;                   //子关键帧
+                                pP = vpConnected[i];        //目前和子关键帧具有最大权值的关键帧 
+                                max = w;                    //这个最大的权值
+                                bContinue = true;           //说明子节点找到了可以作为其新父关键帧的帧
                             }
                         }
                     }
                 }
             }
 
+            // 如果在上面的过程中找到了新的关键帧
+            // ? 感觉这里的应该是在"遍历每一个子关键帧"的过程中进行的吧
             if(bContinue)
             {
                 // 因为父节点死了，并且子节点找到了新的父节点，子节点更新自己的父节点
                 pC->ChangeParent(pP);
-                // 因为子节点找到了新的父节点并更新了父节点，那么该子节点升级，作为其它子节点的备选父节点
+                // NOTICE 因为子节点找到了新的父节点并更新了父节点，那么该子节点升级，作为其它子节点的备选父节点
                 sParentCandidates.insert(pC);
                 // 该子节点处理完毕
                 mspChildrens.erase(pC);
@@ -689,29 +705,35 @@ void KeyFrame::SetBadFlag()
         if(!mspChildrens.empty())
             for(set<KeyFrame*>::iterator sit=mspChildrens.begin(); sit!=mspChildrens.end(); sit++)
             {
-                // 直接把父节点的父节点作为自己的父节点
+                // 直接把父节点的父节点作为自己的父节点 即对于这些子节点来说,他们的新的父节点其实就是自己的爷爷节点
                 (*sit)->ChangeParent(mpParent);
             }
 
         mpParent->EraseChild(this);
+        // 如果当前的关键帧要被删除的话就要计算这个,表示当前关键帧到原本的父关键帧的位姿变换 (注意在这个删除的过程中,其实并没有将当前关键帧中存储的父关键帧的指针删除掉)
         mTcp = Tcw*mpParent->GetPoseInverse();
+        // 嗯,确定当前关键帧已经完蛋了
         mbBad = true;
-    }
+    }   //退出互斥锁的保护区域
 
 
     mpMap->EraseKeyFrame(this);
     mpKeyFrameDB->erase(this);
 }
 
+// 返回当前关键帧是否已经完蛋了
 bool KeyFrame::isBad()
 {
     unique_lock<mutex> lock(mMutexConnections);
     return mbBad;
 }
 
+// 删除当前关键帧和指定关键帧之间的共视关系
 void KeyFrame::EraseConnection(KeyFrame* pKF)
 {
+    // 其实这个应该表示是否真的是有共视关系
     bool bUpdate = false;
+
     {
         unique_lock<mutex> lock(mMutexConnections);
         if(mConnectedKeyFrameWeights.count(pKF))
@@ -721,17 +743,20 @@ void KeyFrame::EraseConnection(KeyFrame* pKF)
         }
     }
 
+    // 如果是真的有共视关系,那么删除之后就要更新共视关系
     if(bUpdate)
         UpdateBestCovisibles();
 }
 
-// r为边长（半径）
+// 获取某个特征点的邻域中的特征点id,其实这个和 Frame.cc 中的那个函数基本上都是一致的; r为边长（半径）
 vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const float &r) const
 {
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
-    // floor向下取整，mfGridElementWidthInv为每个像素占多少个格子
+    // 计算要搜索的cell的范围
+
+    // floor向下取整，mfGridElementWidthInv 为每个像素占多少个格子
     const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
     if(nMinCellX>=mnGridCols)
         return vIndices;
@@ -749,6 +774,7 @@ vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const
     if(nMaxCellY<0)
         return vIndices;
 
+    // 遍历每个cell,取出其中每个cell中的点,并且每个点都要计算是否在邻域内
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
@@ -769,16 +795,13 @@ vector<size_t> KeyFrame::GetFeaturesInArea(const float &x, const float &y, const
     return vIndices;
 }
 
+// 判断某个点是否在当前关键帧的图像中
 bool KeyFrame::IsInImage(const float &x, const float &y) const
 {
     return (x>=mnMinX && x<mnMaxX && y>=mnMinY && y<mnMaxY);
 }
 
-/**
- * @brief Backprojects a keypoint (if stereo/depth info available) into 3D world coordinates.
- * @param  i 第i个keypoint
- * @return   3D点（相对于世界坐标系）
- */
+// 在双目和RGBD情况下将特征点反投影到空间中
 cv::Mat KeyFrame::UnprojectStereo(int i)
 {
     const float z = mvDepth[i];
@@ -789,6 +812,7 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
         // mvDepth对应的校正前的特征点，因此这里对校正前特征点反投影
         // 可在Frame::UnprojectStereo中却是对校正后的特征点mvKeysUn反投影
         // 在ComputeStereoMatches函数中应该对校正后的特征点求深度？？ (wubo???)
+        // 我觉得是作者可能写错了 (guoqing)
         const float u = mvKeys[i].pt.x;
         const float v = mvKeys[i].pt.y;
         const float x = (u-cx)*z*invfx;
@@ -805,11 +829,7 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
         return cv::Mat();
 }
 
-/**
- * @brief 评估当前关键帧场景深度，q=2表示中值
- * @param q q=2
- * @return Median Depth
- */
+// Compute Scene Depth (q=2 median). Used in monocular. 评估当前关键帧场景深度，q=2表示中值. 只是在单目情况下才会使用
 float KeyFrame::ComputeSceneMedianDepth(const int q)
 {
     vector<MapPoint*> vpMapPoints;
