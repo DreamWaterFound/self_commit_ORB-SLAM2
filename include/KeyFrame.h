@@ -322,12 +322,18 @@ public:
     long unsigned int mnBALocalForKF;
     long unsigned int mnBAFixedForKF;
 
-    // Variables used by the keyframe database
+    // Variables used by the keyframe database 下面的这些变量都是临时的,由外部调用暂时存放一些数据
+    /// 标记了当前关键帧是id为mnLoopQuery的回环检测的候选关键帧
     long unsigned int mnLoopQuery;
+    /// 当前关键帧和这个形成回环的候选关键帧中,具有相同word的个数
     int mnLoopWords;
+    /// 和那个形成回环的关键帧的词袋匹配程度的评分
     float mLoopScore;
+    /// 和上面的变量作用差不多，不过这个变量是用来存储在辅助进行重定位的时候，要进行重定位的那个帧的id
     long unsigned int mnRelocQuery;
+    /// 和那个要进行重定位的帧,所具有相同的单词的个数
     int mnRelocWords;
+    /// 还有和那个帧的词袋的相似程度的评分
     float mRelocScore;
 
     // Variables used by loop closing

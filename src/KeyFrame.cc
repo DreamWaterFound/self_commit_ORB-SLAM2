@@ -830,6 +830,7 @@ cv::Mat KeyFrame::UnprojectStereo(int i)
 }
 
 // Compute Scene Depth (q=2 median). Used in monocular. 评估当前关键帧场景深度，q=2表示中值. 只是在单目情况下才会使用
+// 其实过程就是对当前关键帧下所有地图点的深度进行从小到大排序,返回距离头部其中1/q处的深度值作为当前场景的平均深度
 float KeyFrame::ComputeSceneMedianDepth(const int q)
 {
     vector<MapPoint*> vpMapPoints;
@@ -846,6 +847,7 @@ float KeyFrame::ComputeSceneMedianDepth(const int q)
     cv::Mat Rcw2 = Tcw_.row(2).colRange(0,3);
     Rcw2 = Rcw2.t();
     float zcw = Tcw_.at<float>(2,3);
+    // 遍历每一个地图点,计算并保存其在当前关键帧下的深度
     for(int i=0; i<N; i++)
     {
         if(mvpMapPoints[i])
