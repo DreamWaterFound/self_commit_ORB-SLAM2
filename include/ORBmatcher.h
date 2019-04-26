@@ -1,4 +1,15 @@
 /**
+ * @file ORBmatcher.h
+ * @author guoqing (1337841346@qq.com)
+ * @brief 处理数据关联问题
+ * @version 0.1
+ * @date 2019-04-26
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -22,13 +33,13 @@
 #ifndef ORBMATCHER_H
 #define ORBMATCHER_H
 
-#include<vector>
-#include<opencv2/core/core.hpp>
-#include<opencv2/features2d/features2d.hpp>
+#include <vector>
+#include <opencv2/core/core.hpp>
+#include <opencv2/features2d/features2d.hpp>
 
-#include"MapPoint.h"
-#include"KeyFrame.h"
-#include"Frame.h"
+#include "MapPoint.h"
+#include "KeyFrame.h"
+#include "Frame.h"
 
 
 namespace ORB_SLAM2
@@ -38,9 +49,19 @@ class ORBmatcher
 {    
 public:
 
-    ORBmatcher(float nnratio=0.6, bool checkOri=true);
+    /**
+     * Constructor
+     * @param nnratio  ratio of the best and the second score   最优和次优评分的比例
+     * @param checkOri check orientation                        是否检查方向
+     */
+    ORBmatcher(float nnratio=0.6, bool checkOri=true)
 
-    // Computes the Hamming distance between two ORB descriptors
+    /**
+     * @brief Computes the Hamming distance between two ORB descriptors 计算地图点和候选投影点的描述子距离
+     * @param[in] a     一个描述子
+     * @param[in] b     另外一个描述子
+     * @return int      描述子的汉明距离
+     */
     static int DescriptorDistance(const cv::Mat &a, const cv::Mat &b);
 
     // Search matches between Frame keypoints and projected MapPoints. Returns number of matches
@@ -64,8 +85,7 @@ public:
     // Used to track from previous frame (Tracking)
     /**
      * @brief 通过投影，对上一帧的特征点进行跟踪
-     *
-     * 上一帧中包含了MapPoints，对这些MapPoints进行tracking，由此增加当前帧的MapPoints \n
+     * @details 上一帧中包含了MapPoints，对这些MapPoints进行tracking，由此增加当前帧的MapPoints \n
      * 1. 将上一帧的MapPoints投影到当前帧(根据速度模型可以估计当前帧的Tcw)
      * 2. 在投影点附近根据描述子距离选取匹配，以及最终的方向投票机制进行剔除
      * @param  CurrentFrame 当前帧
@@ -93,6 +113,16 @@ public:
 
     // Project MapPoints using a Similarity Transformation and search matches.
     // Used in loop detection (Loop Closing)
+    /**
+     * @brief 根据Sim3变换，将每个vpPoints投影到pKF上，并根据尺度确定一个搜索区域，
+     * @detials 根据该MapPoint的描述子与该区域内的特征点进行匹配，如果匹配误差小于TH_LOW即匹配成功，更新vpMatched
+     * @param[in] pKF               要投影到的关键帧
+     * @param[in] Scw               相似变换
+     * @param[in] vpPoints          空间点
+     * @param[in] vpMatched         已经得到的空间点和关键帧上点的匹配关系
+     * @param[in] th                搜索窗口的阈值
+     * @return int                  匹配的特征点数目
+     */
     int SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const std::vector<MapPoint*> &vpPoints, std::vector<MapPoint*> &vpMatched, int th);
 
     // Search matches between MapPoints in a KeyFrame and ORB in a Frame.
@@ -100,8 +130,7 @@ public:
     // Used in Relocalisation and Loop Detection
     /**
      * @brief 通过词包，对关键帧的特征点进行跟踪
-     * 
-     * KeyFrame中包含了MapPoints，对这些MapPoints进行tracking \n
+     * @details KeyFrame中包含了MapPoints，对这些MapPoints进行tracking \n
      * 由于每一个MapPoint对应有描述子，因此可以通过描述子距离进行跟踪 \n
      * 为了加速匹配过程，将关键帧和当前帧的描述子划分到特定层的nodes中 \n
      * 对属于同一node的描述子计算距离进行匹配 \n
@@ -133,21 +162,45 @@ public:
 
 public:
 
-    static const int TH_LOW;
-    static const int TH_HIGH;
-    static const int HISTO_LENGTH;
+    // 要用到的一些阈值
+    static const int TH_LOW;            ///< 判断描述子距离时比较低的那个阈值,用于词袋模型加速匹配过程
+    static const int TH_HIGH;           ///< 判断描述子距离时比较高的那个阈值,用于计算投影后能够匹配上的特征点的数目
+    static const int HISTO_LENGTH;      ///< 判断特征点旋转用直方图的长度
 
 
 protected:
 
+    /**
+     * @brief 检查极线距离
+     * @param[in] kp1   特征点1
+     * @param[in] kp2   特征点2
+     * @param[in] F12   两帧之间的基础矩阵
+     * @param[in] pKF   //? 关键帧?
+     * @return true 
+     * @return false 
+     */
     bool CheckDistEpipolarLine(const cv::KeyPoint &kp1, const cv::KeyPoint &kp2, const cv::Mat &F12, const KeyFrame *pKF);
 
+    /**
+     * @brief 根据观察的视角来计算匹配的时的搜索窗口大小
+     * @param[in] viewCos   视角的余弦值
+     * @return float        搜索窗口的大小
+     */
     float RadiusByViewingCos(const float &viewCos);
 
+
+    /**
+     * @brief 计算旋转误差直方图 rotHist 中,累计的点最多的三个index 
+     * @param[in] histo     旋转误差直方图数据
+     * @param[in] L         旋转误差直方图长度
+     * @param[out] ind1     最多的index         
+     * @param[out] ind2     次多的index
+     * @param[out] ind3     第三多的index
+     */
     void ComputeThreeMaxima(std::vector<int>* histo, const int L, int &ind1, int &ind2, int &ind3);
 
-    float mfNNratio;
-    bool mbCheckOrientation;
+    float mfNNratio;            ///< 最优评分和次优评分的比例
+    bool mbCheckOrientation;    ///< 是否检查特征点的方向
 };
 
 }// namespace ORB_SLAM

@@ -737,7 +737,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     /** </ul> */
 }
 
-//找到在 以x,y为中心,边长为2r的方形内且在[minLevel, maxLevel]的特征点
+//找到在 以x,y为中心,半径为r的圆形内且在[minLevel, maxLevel]的特征点
 vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
 {
     /** 步骤： <ul> */
