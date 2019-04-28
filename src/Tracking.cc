@@ -929,15 +929,14 @@ void Tracking::MonocularInitialization()
         // mvbPrevMatched为前一帧的特征点，存储了mInitialFrame中哪些点将进行接下来的匹配
         // mvIniMatches存储mInitialFrame,mCurrentFrame之间匹配的特征点
         ORBmatcher matcher(
-            0.9,        //? 最佳的和次佳评分的比值?
+            0.9,        //最佳的和次佳评分的比值阈值
             true);      //检查特征点的方向
         //针对单目初始化的时候,进行特征点的匹配
-        //? 当前帧的特征点是在执行这个函数的时候提取吗
         int nmatches = matcher.SearchForInitialization(
             mInitialFrame,mCurrentFrame,    //初始化时的参考帧和当前帧
             mvbPrevMatched,                 //在初始化参考帧中提取得到的特征点
             mvIniMatches,                   //保存匹配关系
-            100);                           //? 什么窗口大小
+            100);                           //搜索窗口大小
 
         // Check if there are enough correspondences
         // step 4：如果初始化的两帧之间的匹配点太少，重新初始化
