@@ -510,7 +510,7 @@ ORBextractor::ORBextractor(int _nfeatures,		//指定要提取的特征点数目
     {
 		//呐，其实就是这样累乘计算得出来的
         mvScaleFactor[i]=mvScaleFactor[i-1]*scaleFactor;
-		//原来这里的sigma^2就是每层图像相对于初始图像缩放因子的平方？  TODO 为什么要这样定义？
+		//原来这里的sigma^2就是每层图像相对于初始图像缩放因子的平方？  TODO 为什么要这样定义？目测和卡方检验有关系
         mvLevelSigma2[i]=mvScaleFactor[i]*mvScaleFactor[i];
     }
 
