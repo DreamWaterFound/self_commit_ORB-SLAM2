@@ -44,6 +44,16 @@ LocalMapping::LocalMapping(Map *pMap, const float bMonocular):
     mbMonocular(bMonocular), mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mbAbortBA(false), mbStopped(false), mbStopRequested(false), mbNotStop(false), mbAcceptKeyFrames(true)
 {
+    /*
+     * NOTE 这里的终止机制看得我有点晕,大概整理一下,可能还有错误:
+     * 首先是有个标志 mbNotStop ,如过这个标志位被置位那么线程就被禁止进入到 stop 状态
+     * stop 状态的进入需要外部函数请求,请求后 mbStopRequested 将被置位
+     * run 函数发现收到了 mbStopRequested 请求之后,如果 mbNotStop 没有进行限制,那么会将 mbStopped 置位
+     * 此时run函数还没有退出,只不过进入了更深一层的死循环, 不在干正事了,猜测是设置为这个 stop 状态的原因吧
+     * 为了真正地终止当前线程,需要外部线程请求终止 使得 mbFinishRequested 被置位;
+     * 此时run函数在死循环中检查到了 mbFinishRequested 被置位后就会向外层循环跳,直到跳出所有循环,然后将 mbFinished 置位,然后run函数退出,线程终止
+     * 所以最后的 mbFinished 被置位时,就可以认为这个线程是彻底的终止了.
+     */
 }
 
 // 设置回环检测线程句柄
@@ -62,7 +72,7 @@ void LocalMapping::SetTracker(Tracking *pTracker)
 void LocalMapping::Run()
 {
 
-    //? 
+    // 设置当前run函数正在运行
     mbFinished = false;
     // 主循环
     while(1)
@@ -90,7 +100,6 @@ void LocalMapping::Run()
             // Triangulate new MapPoints
             // VI-C new map points creation
             // 相机运动过程中与相邻关键帧通过三角化恢复出一些MapPoints
-            // HERE 1
             CreateNewMapPoints();
 
             // 已经处理完队列中的最后的一个关键帧
@@ -101,13 +110,16 @@ void LocalMapping::Run()
                 SearchInNeighbors();
             }
 
+            // 终止BA的标志
             mbAbortBA = false;
 
             // 已经处理完队列中的最后的一个关键帧，并且闭环检测没有请求停止LocalMapping
             if(!CheckNewKeyFrames() && !stopRequested())
             {
                 // VI-D Local BA
+                // 当局部地图中的关键帧大于2个的时候进行局部地图的BA
                 if(mpMap->KeyFramesInMap()>2)
+                    // 注意这里的第二个参数是按地址传递的,当这里的 mbAbortBA 状态发生变化的时候,这个优化函数也能够及时地注意到
                     Optimizer::LocalBundleAdjustment(mpCurrentKeyFrame,&mbAbortBA, mpMap);
 
                 // Check redundant local Keyframes
@@ -118,29 +130,35 @@ void LocalMapping::Run()
                 // Tracking中先把关键帧交给LocalMapping线程
                 // 并且在Tracking中InsertKeyFrame函数的条件比较松，交给LocalMapping线程的关键帧会比较密
                 // 在这里再删除冗余的关键帧
+                // 也是本文的创新点之一吧(guoqing)
                 KeyFrameCulling();
             }
 
             // 将当前帧加入到闭环检测队列中
+            // 注意这里不排除一开始的时候插入的关键帧是阔以的,但是在后来被设置成为了bad的情况,这个需要注意
             mpLoopCloser->InsertKeyFrame(mpCurrentKeyFrame);
         }
-        else if(Stop())
+        else if(Stop())     // 当要终止当前线程的时候
         {
             // Safe area to stop
             while(isStopped() && !CheckFinish())
             {
+                // 如果还没有结束利索,那么等
                 // usleep(3000);
                 std::this_thread::sleep_for(std::chrono::milliseconds(3));
             }
+            // 然后确定终止了就跳出这个线程的主循环
             if(CheckFinish())
                 break;
         }
 
+        // 查看是否有复位线程的请求
         ResetIfRequested();
 
         // Tracking will see that Local Mapping is not busy
         SetAcceptKeyFrames(true);
 
+        // 如果当前线程已经结束了就跳出主循环
         if(CheckFinish())
             break;
 
@@ -149,16 +167,11 @@ void LocalMapping::Run()
 
     }
 
+    // 设置线程已经终止
     SetFinish();
 }
 
-/**
- * @brief 插入关键帧
- *
- * 将关键帧插入到地图中，以便将来进行局部地图优化
- * NOTICE 这里仅仅是将关键帧插入到列表中进行等待
- * @param pKF KeyFrame
- */
+// 插入关键帧,由外部线程调用;这里只是插入到列表中,等待线程主函数对其进行处理
 void LocalMapping::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexNewKFs);
@@ -608,23 +621,27 @@ void LocalMapping::CreateNewMapPoints()
     }
 }
 
-/**
- * 检查并融合当前关键帧与相邻帧（两级相邻）重复的MapPoints
- */
+// 检查并融合当前关键帧与相邻帧（两级相邻）重复的MapPoints
 void LocalMapping::SearchInNeighbors()
 {
     // Retrieve neighbor keyframes
-    // 步骤1：获得当前关键帧在covisibility图中权重排名前nn的邻接关键帧
+    // STEP 1：获得当前关键帧在covisibility图中权重排名前nn的邻接关键帧
     // 找到当前帧一级相邻与二级相邻关键帧
+
+    // 单目情况要10个邻接关键帧，双目或者RGBD则要20个
     int nn = 10;
     if(mbMonocular)
         nn=20;
-    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
 
+    // 候选的一级相邻关键帧
+    const vector<KeyFrame*> vpNeighKFs = mpCurrentKeyFrame->GetBestCovisibilityKeyFrames(nn);
+    // 筛选之后的一级相邻关键帧以及二级相邻关键帧
     vector<KeyFrame*> vpTargetKFs;
+    // 开始对所有候选的一级关键帧展开遍历：
     for(vector<KeyFrame*>::const_iterator vit=vpNeighKFs.begin(), vend=vpNeighKFs.end(); vit!=vend; vit++)
     {
         KeyFrame* pKFi = *vit;
+        // 没有和当前帧进行过融合的操作
         if(pKFi->isBad() || pKFi->mnFuseTargetForKF == mpCurrentKeyFrame->mnId)
             continue;
         vpTargetKFs.push_back(pKFi);// 加入一级相邻帧
@@ -632,9 +649,11 @@ void LocalMapping::SearchInNeighbors()
 
         // Extend to some second neighbors
         const vector<KeyFrame*> vpSecondNeighKFs = pKFi->GetBestCovisibilityKeyFrames(5);
+        // 遍历得到的二级相邻关键帧
         for(vector<KeyFrame*>::const_iterator vit2=vpSecondNeighKFs.begin(), vend2=vpSecondNeighKFs.end(); vit2!=vend2; vit2++)
         {
             KeyFrame* pKFi2 = *vit2;
+            // 当然这个二级关键帧要求没有和当前关键帧发生融合,并且这个二级关键帧也不是当前关键帧
             if(pKFi2->isBad() || pKFi2->mnFuseTargetForKF==mpCurrentKeyFrame->mnId || pKFi2->mnId==mpCurrentKeyFrame->mnId)
                 continue;
             vpTargetKFs.push_back(pKFi2);// 存入二级相邻帧
@@ -642,9 +661,10 @@ void LocalMapping::SearchInNeighbors()
     }
 
     // Search matches by projection from current KF in target KFs
+    // 使用默认参数, 最优和次优比例0.6,匹配时检查特征点的旋转
     ORBmatcher matcher;
 
-    // 步骤2：将当前帧的MapPoints分别与一级二级相邻帧(的MapPoints)进行融合
+    // STEP2：将当前帧的MapPoints分别与一级二级相邻帧(的MapPoints)进行融合 -- 正向
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
     {
@@ -653,15 +673,16 @@ void LocalMapping::SearchInNeighbors()
         // 投影当前帧的MapPoints到相邻关键帧pKFi中，并判断是否有重复的MapPoints
         // 1.如果MapPoint能匹配关键帧的特征点，并且该点有对应的MapPoint，那么将两个MapPoint合并（选择观测数多的）
         // 2.如果MapPoint能匹配关键帧的特征点，并且该点没有对应的MapPoint，那么为该点添加MapPoint
+        // 注意这个时候对地图点融合的操作是立即生效的
         matcher.Fuse(pKFi,vpMapPointMatches);
     }
 
     // Search matches by projection from target KFs in current KF
-    // 用于存储一级邻接和二级邻接关键帧所有MapPoints的集合
+    // 用于进行存储要融合的一级邻接和二级邻接关键帧所有MapPoints的集合
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
 
-    // 步骤3：将一级二级相邻帧的MapPoints分别与当前帧（的MapPoints）进行融合
+    // STEP3：将一级二级相邻帧的MapPoints分别与当前帧（的MapPoints）进行融合 -- 反向
     // 遍历每一个一级邻接和二级邻接关键帧
     for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
     {
@@ -669,7 +690,7 @@ void LocalMapping::SearchInNeighbors()
 
         vector<MapPoint*> vpMapPointsKFi = pKFi->GetMapPointMatches();
 
-        // 遍历当前一级邻接和二级邻接关键帧中所有的MapPoints
+        // 遍历当前一级邻接和二级邻接关键帧中所有的MapPoints,找出需要进行融合的并且加入到集合中
         for(vector<MapPoint*>::iterator vitMP=vpMapPointsKFi.begin(), vendMP=vpMapPointsKFi.end(); vitMP!=vendMP; vitMP++)
         {
             MapPoint* pMP = *vitMP;
@@ -685,11 +706,11 @@ void LocalMapping::SearchInNeighbors()
             vpFuseCandidates.push_back(pMP);
         }
     }
-
+    // 进行融合操作,其实这里的操作和上面的那个融合操作是完全相同的,不过上个是"每个关键帧和当前关键帧的地图点进行融合",而这里的是"当前关键帧和所有邻接关键帧的地图点进行融合"
     matcher.Fuse(mpCurrentKeyFrame,vpFuseCandidates);
 
     // Update points
-    // 步骤4：更新当前帧MapPoints的描述子，深度，观测主方向等属性
+    // STEP4：更新当前帧MapPoints的描述子，深度，观测主方向等属性
     vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
@@ -709,7 +730,7 @@ void LocalMapping::SearchInNeighbors()
 
     // Update connections in covisibility graph
 
-    // 步骤5：更新当前帧的MapPoints后更新与其它帧的连接关系
+    // STEP5：更新当前帧的MapPoints后更新与其它帧的连接关系
     // 更新covisibility图
     mpCurrentKeyFrame->UpdateConnections();
 }
@@ -717,8 +738,7 @@ void LocalMapping::SearchInNeighbors()
 // 根据两关键帧的姿态计算两个关键帧之间的基本矩阵
 cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
 {
-    // Essential Matrix: t12叉乘R12
-    // Fundamental Matrix: inv(K1)*E*inv(K2)
+    // 先构造两帧之间的R12,t12
 
     cv::Mat R1w = pKF1->GetRotation();
     cv::Mat t1w = pKF1->GetTranslation();
@@ -726,19 +746,35 @@ cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
     cv::Mat t2w = pKF2->GetTranslation();
 
     cv::Mat R12 = R1w*R2w.t();
-    //? 这个的原理好像是在哪里看到过
-    // HERE TODO 
+    
+    /*
+     * 这里可以这样理解：世界坐标系原点记为W，关键帧1和关键帧2的相机光心分别记为O1 O2. 根据Frame类中的有关说明，在世界坐标系下
+     * 这两帧相机光心的坐标可以记为：
+     * O1=-Rw1*t1w
+     * O2=-RW2*t2w
+     * 那么 t12 本质上描述的是从O2 -> O1相机光心所产生的位移，当在世界坐标系下的时候可以写成：
+     * t12(w) = O2-O1 = -Rw2*t2w+Rw1*t1w
+     * 要放在O1坐标系下表示的话，需要进行一个旋转变换（注意不要有平移变换，这个是对点才用的，如果对向量也应用的话很明显t12的长度都变了）
+     * t12(1) = R1w*t12(w)
+     *        = -R1w*Rw2*t2w+Rw1*R1w*t1w
+     *        = -R1w*Rw2+t2w+t1w
+     * 就是下面这行代码中写的：
+     */ 
+    
     cv::Mat t12 = -R1w*R2w.t()*t2w+t1w;
 
+    // 得到 t12 的反对称矩阵
     cv::Mat t12x = SkewSymmetricMatrix(t12);
 
     const cv::Mat &K1 = pKF1->mK;
     const cv::Mat &K2 = pKF2->mK;
 
-
+    // Essential Matrix: t12叉乘R12
+    // Fundamental Matrix: inv(K1)*E*inv(K2)
     return K1.t().inv()*t12x*R12*K2.inv();
 }
 
+// 外部线程调用,请求停止当前线程的工作
 void LocalMapping::RequestStop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -747,9 +783,11 @@ void LocalMapping::RequestStop()
     mbAbortBA = true;
 }
 
+// 检查是否要把当前的局部建图线程停止工作,运行的时候要检查是否有终止请求,如果有就执行. 由run函数调用
 bool LocalMapping::Stop()
 {
     unique_lock<mutex> lock(mMutexStop);
+    // 如果当前线程还没有准备停止,但是已经有终止请求了,那么就准备停止当前线程
     if(mbStopRequested && !mbNotStop)
     {
         mbStopped = true;
@@ -760,18 +798,21 @@ bool LocalMapping::Stop()
     return false;
 }
 
+// 检查mbStopped是否被置位了
 bool LocalMapping::isStopped()
 {
     unique_lock<mutex> lock(mMutexStop);
     return mbStopped;
 }
 
+// 是否有终止当前线程的请求
 bool LocalMapping::stopRequested()
 {
     unique_lock<mutex> lock(mMutexStop);
     return mbStopRequested;
 }
 
+// 释放当前还在缓冲区中的关键帧指针
 void LocalMapping::Release()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -787,6 +828,7 @@ void LocalMapping::Release()
     cout << "Local Mapping RELEASE" << endl;
 }
 
+// 查看当前是否允许接受关键帧
 bool LocalMapping::AcceptKeyFrames()
 {
     unique_lock<mutex> lock(mMutexAccept);
@@ -800,11 +842,13 @@ void LocalMapping::SetAcceptKeyFrames(bool flag)
     mbAcceptKeyFrames=flag;
 }
 
+// 设置 mbnotStop标志的状态
 bool LocalMapping::SetNotStop(bool flag)
 {
     unique_lock<mutex> lock(mMutexStop);
 
     //已经处于!flag的状态了
+    // 就是我希望线程先不要停止,但是经过检查这个时候线程已经停止了...
     if(flag && mbStopped)
         //设置失败
         return false;
@@ -815,17 +859,13 @@ bool LocalMapping::SetNotStop(bool flag)
     return true;
 }
 
+// 终止BA
 void LocalMapping::InterruptBA()
 {
     mbAbortBA = true;
 }
 
-/**
- * @brief 关键帧剔除
- * 
- * 在Covisibility Graph中的关键帧，其90%以上的MapPoints能被其他关键帧（至少3个）观测到，则认为该关键帧为冗余关键帧。
- * @see VI-E Local Keyframe Culling
- */
+// 关键帧剔除,在Covisibility Graph中的关键帧，其90%以上的MapPoints能被其他关键帧（至少3个）观测到，则认为该关键帧为冗余关键帧。
 void LocalMapping::KeyFrameCulling()
 {
     // Check redundant keyframes (only local keyframes)
@@ -833,24 +873,26 @@ void LocalMapping::KeyFrameCulling()
     // in at least other 3 keyframes (in the same or finer scale)
     // We only consider close stereo points
 
-    // 步骤1：根据Covisibility Graph提取当前帧的共视关键帧
+    // STEP1：根据Covisibility Graph提取当前帧的共视关键帧 (所有)
     vector<KeyFrame*> vpLocalKeyFrames = mpCurrentKeyFrame->GetVectorCovisibleKeyFrames();
 
-    // 对所有的局部关键帧进行遍历
+    // 对所有的局部关键帧进行遍历 ; 这里的局部关键帧就理解为当前关键帧的共视帧
     for(vector<KeyFrame*>::iterator vit=vpLocalKeyFrames.begin(), vend=vpLocalKeyFrames.end(); vit!=vend; vit++)
     {
         KeyFrame* pKF = *vit;
         if(pKF->mnId==0)
             continue;
-        // 步骤2：提取每个共视关键帧的MapPoints
+        // STEP2：提取每个共视关键帧的MapPoints
         const vector<MapPoint*> vpMapPoints = pKF->GetMapPointMatches();
 
-        int nObs = 3;
-        const int thObs=nObs;
-        int nRedundantObservations=0;
-        int nMPs=0;
+        int nObs = 3;                       // 接下来程序中使用到的循环变量,记录了某个点的被观测次数 (其实这里初始化是没有意义的)
+        const int thObs=nObs;               // 观测阈值,默认为3
+        int nRedundantObservations=0;       // 冗余观测地图点的计数器
+                                            // 不是说我从地图点中得到了其观测数据我就信了,这里还要求这个地图点在当前关键帧和在邻接关键帧中的特征尺度变化不太大才可以
+                                            // 认为这个地图点被"冗余观测"了
+        int nMPs=0;                         // 计数器,参与到检测的地图点的总数目
 
-        // 步骤3：遍历该局部关键帧的MapPoints，判断是否90%以上的MapPoints能被其它关键帧（至少3个）观测到
+        // STEP3：遍历该局部关键帧的MapPoints，判断是否90%以上的MapPoints能被其它关键帧（至少3个）观测到
         for(size_t i=0, iend=vpMapPoints.size(); i<iend; i++)
         {
             MapPoint* pMP = vpMapPoints[i];
@@ -860,7 +902,8 @@ void LocalMapping::KeyFrameCulling()
                 {
                     if(!mbMonocular)
                     {
-                        // 对于双目，仅考虑近处的MapPoints，不超过mbf * 35 / fx
+                        // 对于双目，仅考虑近处的MapPoints，不超过mbf * 35 / fx 
+                        // 不过配置文件中给的是近点的定义是 40 * fx
                         if(pKF->mvDepth[i]>pKF->mThDepth || pKF->mvDepth[i]<0)
                             continue;
                     }
@@ -873,6 +916,7 @@ void LocalMapping::KeyFrameCulling()
                         const map<KeyFrame*, size_t> observations = pMP->GetObservations();
                         // 判断该MapPoint是否同时被三个关键帧观测到
                         int nObs=0;
+                        // 遍历当前这个邻接关键帧上的地图点的所有观测信息
                         for(map<KeyFrame*, size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
                         {
                             KeyFrame* pKFi = mit->first;
@@ -900,19 +944,23 @@ void LocalMapping::KeyFrameCulling()
             }
         }
 
-        // 步骤4：该局部关键帧90%以上的MapPoints能被其它关键帧（至少3个）观测到，则认为是冗余关键帧
+        // STEP4：该局部关键帧90%以上的MapPoints能被其它关键帧（至少3个）观测到，则认为是冗余关键帧
         if(nRedundantObservations>0.9*nMPs)
+            // 剔除的时候就设置一个 bad flag 就可以了
             pKF->SetBadFlag();
     }
 }
 
+// 计算三维向量v的反对称矩阵
 cv::Mat LocalMapping::SkewSymmetricMatrix(const cv::Mat &v)
 {
-    return (cv::Mat_<float>(3,3) <<             0, -v.at<float>(2), v.at<float>(1),
-            v.at<float>(2),               0,-v.at<float>(0),
-            -v.at<float>(1),  v.at<float>(0),              0);
+    return (cv::Mat_<float>(3,3) <<
+            0,              -v.at<float>(2),     v.at<float>(1),
+            v.at<float>(2),               0,    -v.at<float>(0),
+           -v.at<float>(1),  v.at<float>(0),                 0);
 }
 
+// 请求当前线程复位,由外部线程调用,堵塞的
 void LocalMapping::RequestReset()
 {
     {
@@ -920,6 +968,7 @@ void LocalMapping::RequestReset()
         mbResetRequested = true;
     }
 
+    // 一直等到局部建图线程响应之后才可以退出
     while(1)
     {
         {
@@ -933,37 +982,44 @@ void LocalMapping::RequestReset()
     }
 }
 
+// 检查是否有复位线程的请求
 void LocalMapping::ResetIfRequested()
 {
     unique_lock<mutex> lock(mMutexReset);
+    // 执行复位操作:清空关键帧缓冲区,清空待cull的地图点缓冲
     if(mbResetRequested)
     {
         mlNewKeyFrames.clear();
         mlpRecentAddedMapPoints.clear();
+        // 恢复为false表示复位过程完成
         mbResetRequested=false;
     }
 }
 
+// 请求终止当前线程
 void LocalMapping::RequestFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinishRequested = true;
 }
 
+// 检查是否已经有外部线程请求终止当前线程
 bool LocalMapping::CheckFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinishRequested;
 }
 
+// 设置当前线程已经真正地结束了
 void LocalMapping::SetFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
-    mbFinished = true;    
+    mbFinished = true;    // 线程已经被结束
     unique_lock<mutex> lock2(mMutexStop);
-    mbStopped = true;
+    mbStopped = true;     //既然已经都结束了,那么当前线程也已经停止工作了
 }
 
+// 当前线程的run函数是否已经终止
 bool LocalMapping::isFinished()
 {
     unique_lock<mutex> lock(mMutexFinish);

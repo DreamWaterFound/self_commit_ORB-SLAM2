@@ -60,6 +60,7 @@ public:
     // Main function
     void Run();
 
+    // 将某个关键帧加入到回环检测的过程中,由局部建图线程调用
     void InsertKeyFrame(KeyFrame *pKF);
 
     void RequestReset();

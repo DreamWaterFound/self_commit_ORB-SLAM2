@@ -532,6 +532,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
  * @param pKF        KeyFrame
  * @param pbStopFlag 是否停止优化的标志
  * @param pMap       在优化后，更新状态时需要用到Map的互斥量mMutexMapUpdate
+ * @note 由局部建图线程调用,对局部地图进行优化的函数
  */
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap)
 {
