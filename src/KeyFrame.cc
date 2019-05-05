@@ -567,14 +567,14 @@ set<KeyFrame*> KeyFrame::GetLoopEdges()
     return mspLoopEdges;
 }
 
-// 设置当前关键帧不要在优化的过程中被删除
+// 设置当前关键帧不要在优化的过程中被删除. 由回环检测线程调用
 void KeyFrame::SetNotErase()
 {
     unique_lock<mutex> lock(mMutexConnections);
     mbNotErase = true;
 }
 
-// 删除当前的这个关键帧
+// 删除当前的这个关键帧,表示不进行回环检测过程;由回环检测线程调用
 void KeyFrame::SetErase()
 {
     {

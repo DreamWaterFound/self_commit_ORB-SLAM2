@@ -262,7 +262,7 @@ public:
     // Enable/Disable bad flag changes
     /** @brief 设置当前关键帧不要在优化的过程中被删除  */
     void SetNotErase();
-    /** @brief 准备删除当前的这个关键帧 */
+    /** @brief 准备删除当前的这个关键帧,表示不进行回环检测过程;由回环检测线程调用 */
     void SetErase();
 
     // Set/check bad flag

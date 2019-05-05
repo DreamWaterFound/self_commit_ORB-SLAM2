@@ -106,7 +106,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     // 提出所有与该pKF相连的KeyFrame，这些相连Keyframe都是局部相连，在闭环检测的时候将被剔除
     set<KeyFrame*> spConnectedKeyFrames = pKF->GetConnectedKeyFrames();
     list<KeyFrame*> lKFsSharingWords;// 用于保存可能与pKF形成回环的候选帧（只要有相同的word，且不属于局部相连帧）
-    //? 这里的局部相连帧是怎么组织形成的? 
+    //这里的局部相连帧,就是和当前关键帧具有共视关系的关键帧
 
     // Search all keyframes that share a word with current keyframes
     // Discard keyframes connected to the query keyframe

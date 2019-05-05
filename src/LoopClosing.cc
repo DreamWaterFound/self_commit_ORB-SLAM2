@@ -1,4 +1,15 @@
 /**
+ * @file LoopClosing.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief 回环检测线程
+ * @version 0.1
+ * @date 2019-05-05
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -35,34 +46,38 @@
 namespace ORB_SLAM2
 {
 
+// 构造函数
 LoopClosing::LoopClosing(Map *pMap, KeyFrameDatabase *pDB, ORBVocabulary *pVoc, const bool bFixScale):
     mbResetRequested(false), mbFinishRequested(false), mbFinished(true), mpMap(pMap),
     mpKeyFrameDB(pDB), mpORBVocabulary(pVoc), mpMatchedKF(NULL), mLastLoopKFid(0), mbRunningGBA(false), mbFinishedGBA(true),
     mbStopGBA(false), mpThreadGBA(NULL), mbFixScale(bFixScale), mnFullBAIdx(0)
 {
+    //? 这个共视一致性阈值是什么鬼?
     mnCovisibilityConsistencyTh = 3;
 }
 
+// 设置追踪线程句柄
 void LoopClosing::SetTracker(Tracking *pTracker)
 {
     mpTracker=pTracker;
 }
-
+// 设置局部建图线程的句柄
 void LoopClosing::SetLocalMapper(LocalMapping *pLocalMapper)
 {
     mpLocalMapper=pLocalMapper;
 }
 
-
+// 线程主函数
 void LoopClosing::Run()
 {
     mbFinished =false;
 
+    // 线程主循环
     while(1)
     {
         // Check if there are keyframes in the queue
         // Loopclosing中的关键帧是LocalMapping发送过来的，LocalMapping是Tracking中发过来的
-        // 在LocalMapping中通过InsertKeyFrame将关键帧插入闭环检测队列mlpLoopKeyFrameQueue
+        // 在LocalMapping中通过 InsertKeyFrame 将关键帧插入闭环检测队列mlpLoopKeyFrameQueue
         // 闭环检测队列mlpLoopKeyFrameQueue中的关键帧不为空
         if(CheckNewKeyFrames())
         {
@@ -79,8 +94,10 @@ void LoopClosing::Run()
             }
         }
 
+        // 查看是否有外部线程请求复位当前线程
         ResetIfRequested();
 
+        // 查看外部线程是否有终止当前线程的请求,如果有的话就跳出这个线程的主函数的主循环
         if(CheckFinish())
             break;
 
@@ -89,17 +106,20 @@ void LoopClosing::Run()
 
 	}
 
+    // 运行到这里说明有外部线程请求终止当前线程,在这个函数中执行终止当前线程的一些操作
     SetFinish();
 }
 
+// 将某个关键帧加入到回环检测的过程中,由局部建图线程调用
 void LoopClosing::InsertKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexLoopQueue);
+    // NOTICE 这里第0个关键帧不能够参与到回环检测的过程中,因为第0关键帧定义了整个地图的世界坐标系
     if(pKF->mnId!=0)
         mlpLoopKeyFrameQueue.push_back(pKF);
 }
 
-/**
+/*
  * 查看列表中是否有等待被插入的关键帧
  * @return 如果存在，返回true
  */
@@ -109,10 +129,12 @@ bool LoopClosing::CheckNewKeyFrames()
     return(!mlpLoopKeyFrameQueue.empty());
 }
 
+// FIXME: 检测回环
+// HERE
 bool LoopClosing::DetectLoop()
 {
     {
-        // 从队列中取出一个关键帧
+        // 从队列中取出一个关键帧,作为当前关键帧
         unique_lock<mutex> lock(mMutexLoopQueue);
         mpCurrentKF = mlpLoopKeyFrameQueue.front();
         mlpLoopKeyFrameQueue.pop_front();
@@ -121,7 +143,8 @@ bool LoopClosing::DetectLoop()
     }
 
     //If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
-    // 步骤1：如果距离上次闭环没多久（小于10帧），或者map中关键帧总共还没有10帧，则不进行闭环检测
+    // STEP 1：如果距离上次闭环没多久（小于10帧），或者map中关键帧总共还没有10帧，则不进行闭环检测
+    // 后者的体现是当mLastLoopKFid为0的时候
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);
@@ -133,7 +156,7 @@ bool LoopClosing::DetectLoop()
     // This is the lowest score to a connected keyframe in the covisibility graph
     // We will impose loop candidates to have a higher similarity than this
     // VIII-A
-    // 步骤2：遍历所有共视关键帧，计算当前关键帧与每个共视关键的bow相似度得分，并得到最低得分minScore
+    // STEP 2：遍历所有共视关键帧，计算当前关键帧与每个共视关键的bow相似度得分，并得到最低得分minScore
     const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();
     const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;
     float minScore = 1;
@@ -143,15 +166,17 @@ bool LoopClosing::DetectLoop()
         if(pKF->isBad())
             continue;
         const DBoW2::BowVector &BowVec = pKF->mBowVec;
-
+        // 计算当前遍历到的这个关键帧，和前面的这个当前关键帧计算相似度得分；得分越低,相似度越低
         float score = mpORBVocabulary->score(CurrentBowVec, BowVec);
-
+        // 更新最低得分
         if(score<minScore)
             minScore = score;
     }
 
     // Query the database imposing the minimum score
-    // 步骤3：在所有关键帧中找出闭环备选帧
+    // STEP 3：在所有关键帧中找出闭环备选帧
+    // 说白了就是认为和当前关键帧具有回环关系的关键帧,不应该低于当前关键帧的相邻关键帧的最低的相似度
+    // 得到的这些关键帧,和当前关键帧具有较多的共视单词,并且相似度评分都挺高
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
 
     // If there are no loop candidates, just add new keyframe and return false
@@ -160,23 +185,44 @@ bool LoopClosing::DetectLoop()
         mpKeyFrameDB->add(mpCurrentKF);
         mvConsistentGroups.clear();
         mpCurrentKF->SetErase();
-        return false;
+        return false;           // 没有检测到回环
     }
+
+    // 接下来就属于检测到回环啦
+
+    // HERE
 
     // For each loop candidate check consistency with previous loop candidates
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
-    // 步骤4：在候选帧中检测具有连续性的候选帧
-    // 1、每个候选帧将与自己相连的关键帧构成一个“子候选组spCandidateGroup”，vpCandidateKFs-->spCandidateGroup
-    // 2、检测“子候选组”中每一个关键帧是否存在于“连续组”，如果存在nCurrentConsistency++，则将该“子候选组”放入“当前连续组vCurrentConsistentGroups”
+    // STEP 4：在候选帧中检测具有连续性的候选帧
+    // 1、每个候选帧将与自己相连的关键帧构成一个“子候选组spCandidateGroup”， vpCandidateKFs-->spCandidateGroup
+    // 2、检测“子候选组”中每一个关键帧是否存在于“连续组”，如果存在 nCurrentConsistency++，则将该“子候选组”放入“当前连续组vCurrentConsistentGroups”
     // 3、如果nCurrentConsistency大于等于3，那么该”子候选组“代表的候选帧过关，进入mvpEnoughConsistentCandidates
+    
+    // 相关的概念说明:
+    // 组(group): 对于某个关键帧, 其和其具有共视关系的关键帧组成了一个"组";
+    // 子候选组(CandidateGroup): 对于某个候选的回环关键帧, 其和其具有共视关系的关键帧组成的一个"组";
+    // 连续(Consistent):  不同的组之间如果共同拥有一个及以上的关键帧,那么称这两个组之间具有连续关系
+    // 连续性(Consistency):称之为连续长度可能更合适,表示累计的连续的链的长度:A--B 为1, A--B--C--D 为3等;具体反映在数据类型 ConsistentGroup.second上
+    // 连续组(Consistent group): mvConsistentGroups存储了上次执行回环检测时, 新的被检测出来的具有连续性的多个组的集合.由于组之间的连续关系是个网状结构,因此可能存在
+    //                          一个组因为和不同的连续组链都具有连续关系,而被添加两次的情况(当然连续性度量是不相同的)
+    // 连续组链:我guoqing自造的称呼,类似于菊花链A--B--C--D这样形成了一条连续组链.对于这个例子中,由于可能E,F都和D有连续关系,因此连续组链会产生分叉;为了简化计算,连续组中将只会保存
+    //         最后形成连续关系的连续组(见下面的连续组的更新)
+    // 子连续组: 上面的连续组中的一个组
+    // 连续组的初始值: 在遍历某个候选帧的过程中,如果该子候选组没有能够和任何一个上次的子连续组产生连续关系,那么就将添加自己组,并且连续性为0(相当于新开了一个连续链)
+    // 连续组的更新: 当前次回环检测过程中,所有被检测到和之前的连续组链有连续的关系的组,都将在对应的连续组链后面+1,这些子候选组(可能有重复,见上)都将会成为新的连续组;
+    //              换而言之连续组mvConsistentGroups中只保存连续组链中末尾的组
+
     mvpEnoughConsistentCandidates.clear();// 最终筛选后得到的闭环帧
 
     // ConsistentGroup数据类型为pair<set<KeyFrame*>,int>
     // ConsistentGroup.first对应每个“连续组”中的关键帧，ConsistentGroup.second为每个“连续组”的序号
+    // 这个下标是每个"子连续组"的下标,bool表示当前的候选组中是否有和该组相同的一个关键帧
     vector<ConsistentGroup> vCurrentConsistentGroups;
     vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
+    // 遍历刚才得到的每一个候选关键帧
     for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
     {
         KeyFrame* pCandidateKF = vpCandidateKFs[i];
@@ -187,7 +233,7 @@ bool LoopClosing::DetectLoop()
 
         bool bEnoughConsistent = false;
         bool bConsistentForSomeGroup = false;
-        // 遍历之前的“子连续组”
+        // 遍历之前的“子连续组s”
         for(size_t iG=0, iendG=mvConsistentGroups.size(); iG<iendG; iG++)
         {
             // 取出一个之前的子连续组
@@ -208,67 +254,78 @@ bool LoopClosing::DetectLoop()
 
             if(bConsistent)
             {
+                // 和当前的候选组发生"连续"关系的子连续组的"已连续id"
                 int nPreviousConsistency = mvConsistentGroups[iG].second;
                 int nCurrentConsistency = nPreviousConsistency + 1;
+                // 如果当前遍历到的"子连续组"还没有和"子候选组有相同的关键帧的记录,那么就+
                 if(!vbConsistentGroup[iG])// 这里作者原本意思是不是应该是vbConsistentGroup[i]而不是vbConsistentGroup[iG]呢？（wubo???）
+                                          //! 应该就是iG,vbConsistentGroup声明时候的大小和mvConsistentGroups是相同的,而在遍历mvConsistentGroups中的每个元素的时候使用的下标是iG
+                                          //! 而i是在遍历vpCandidateKFs也就是经过KeyFrameDatabase得到的一堆初始的闭环候选帧的时候才使用的  --- guoqing
                 {
                     // 将该“子候选组”的该关键帧打上编号加入到“当前连续组”
                     ConsistentGroup cg = make_pair(spCandidateGroup,nCurrentConsistency);
                     vCurrentConsistentGroups.push_back(cg);
                     vbConsistentGroup[iG]=true; //this avoid to include the same group more than once
                 }
+                // 如果已经连续得足够多了,那么当前的这个候选关键帧是足够靠谱的
                 if(nCurrentConsistency>=mnCovisibilityConsistencyTh && !bEnoughConsistent)
                 {
+                    // 在遍历每个候选关键帧的过程中的、遍历之前的“子连续组”过程中,如果遍历到某个"子连续组"中符合要求的关键帧,就把当前的候选关键帧也添加进去
                     mvpEnoughConsistentCandidates.push_back(pCandidateKF);
                     bEnoughConsistent=true; //this avoid to insert the same candidate more than once
                 }
 
                 //这里是不是缺一个break来提高效率呢？(wubo???)
+                // 师兄说的对 (guoqing)
             }
         }
 
         // If the group is not consistent with any previous group insert with consistency counter set to zero
-        // 如果该“子候选组”的所有关键帧都不存在于“子连续组”，那么vCurrentConsistentGroups将为空，
-        // 于是就把“子候选组”全部拷贝到vCurrentConsistentGroups，并最终用于更新mvConsistentGroups，计数器设为0，重新开始
+        // 如果该“子候选组”的所有关键帧都不存在于“子连续组”，那么 vCurrentConsistentGroups 将为空，
+        // 于是就把“子候选组”全部拷贝到 vCurrentConsistentGroups， 并最终用于更新mvConsistentGroups，计数器设为0，重新开始
         if(!bConsistentForSomeGroup)
         {
-            // 这个地方是不是最好clear一下vCurrentConsistentGroups呢？(wubo???)
+            // 这个地方是不是最好clear一下 vCurrentConsistentGroups 呢？(wubo???)
+            //! 师兄不可以啊! 因为上面的if条件满足的时候,只能够说明当前遍历到的这个候选关键帧形成的子候选组和所有的子连续组没有连续关系,所以当前子候选组是一个新出现的连续组链,
 
             ConsistentGroup cg = make_pair(spCandidateGroup,0);
             vCurrentConsistentGroups.push_back(cg);
         }
-    }
+    }// 遍历得到的初级的候选关键帧
 
     // Update Covisibility Consistent Groups
+    // 当前的变上一次的
     mvConsistentGroups = vCurrentConsistentGroups;
 
 
     // Add Current Keyframe to database
     mpKeyFrameDB->add(mpCurrentKF);
 
+    // 如果不过关
     if(mvpEnoughConsistentCandidates.empty())
     {
         mpCurrentKF->SetErase();
         return false;
     }
-    else
+    else // 过关
     {
         return true;
     }
 
+    // 多余的代码,执行不到
     mpCurrentKF->SetErase();
     return false;
 }
 
-/**
+/* FIXME:
  * @brief 计算当前帧与闭环帧的Sim3变换等
- *
- * 1. 通过Bow加速描述子的匹配，利用RANSAC粗略地计算出当前帧与闭环帧的Sim3（当前帧---闭环帧）
- * 2. 根据估计的Sim3，对3D点进行投影找到更多匹配，通过优化的方法计算更精确的Sim3（当前帧---闭环帧）
- * 3. 将闭环帧以及闭环帧相连的关键帧的MapPoints与当前帧的点进行匹配（当前帧---闭环帧+相连关键帧）
- * 
- * 注意以上匹配的结果均都存在成员变量mvpCurrentMatchedPoints中，
- * 实际的更新步骤见CorrectLoop()步骤3：Start Loop Fusion
+ * @details \n
+ * 1. 通过Bow加速描述子的匹配，利用RANSAC粗略地计算出当前帧与闭环帧的Sim3（当前帧---闭环帧）          \n
+ * 2. 根据估计的Sim3，对3D点进行投影找到更多匹配，通过优化的方法计算更精确的Sim3（当前帧---闭环帧）     \n
+ * 3. 将闭环帧以及闭环帧相连的关键帧的MapPoints与当前帧的点进行匹配（当前帧---闭环帧+相连关键帧）      \n
+ * \n
+ * 注意以上匹配的结果均都存在成员变量mvpCurrentMatchedPoints中，实际的更新步骤见CorrectLoop()步骤3：Start Loop Fusion \n
+ * 对于双目或者是RGBD输入的情况,计算得到的尺度=1
  */
 bool LoopClosing::ComputeSim3()
 {
@@ -483,13 +540,13 @@ bool LoopClosing::ComputeSim3()
     }
 }
 
-/**
- * @brief 闭环
- *
- * 1. 通过求解的Sim3以及相对姿态关系，调整与当前帧相连的关键帧位姿以及这些关键帧观测到的MapPoints的位置（相连关键帧---当前帧）
- * 2. 将闭环帧以及闭环帧相连的关键帧的MapPoints和与当前帧相连的关键帧的点进行匹配（相连关键帧+当前帧---闭环帧+相连关键帧）
- * 3. 通过MapPoints的匹配关系更新这些帧之间的连接关系，即更新covisibility graph
- * 4. 对Essential Graph（Pose Graph）进行优化，MapPoints的位置则根据优化后的位姿做相对应的调整
+/* FIXME:
+ * @brief 闭环纠正
+ * @detials \n
+ * 1. 通过求解的Sim3以及相对姿态关系，调整与当前帧相连的关键帧位姿以及这些关键帧观测到的MapPoints的位置（相连关键帧---当前帧） \n
+ * 2. 将闭环帧以及闭环帧相连的关键帧的MapPoints和与当前帧相连的关键帧的点进行匹配（相连关键帧+当前帧---闭环帧+相连关键帧）     \n
+ * 3. 通过MapPoints的匹配关系更新这些帧之间的连接关系，即更新covisibility graph                                      \n
+ * 4. 对Essential Graph（Pose Graph）进行优化，MapPoints的位置则根据优化后的位姿做相对应的调整                         \n
  * 5. 创建线程进行全局Bundle Adjustment
  */
 void LoopClosing::CorrectLoop()
@@ -711,7 +768,7 @@ void LoopClosing::CorrectLoop()
     mLastLoopKFid = mpCurrentKF->mnId;
 }
 
-// 通过将闭环时相连关键帧的MapPoints投影到这些关键帧中，进行MapPoints检查与替换
+// FIXME: 通过将闭环时相连关键帧的MapPoints投影到这些关键帧中，进行MapPoints检查与替换
 void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
 {
     ORBmatcher matcher(0.8);
@@ -742,14 +799,16 @@ void LoopClosing::SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap)
     }
 }
 
-
+// 由外部线程调用,请求复位当前线程
 void LoopClosing::RequestReset()
 {
+    // 标志置位
     {
         unique_lock<mutex> lock(mMutexReset);
         mbResetRequested = true;
     }
 
+    // 堵塞,直到回环检测线程复位完成
     while(1)
     {
         {
@@ -763,17 +822,19 @@ void LoopClosing::RequestReset()
     }
 }
 
+// 当前线程调用,检查是否有外部线程请求复位当前线程,如果有的话就复位回环检测线程
 void LoopClosing::ResetIfRequested()
 {
     unique_lock<mutex> lock(mMutexReset);
+    // 如果有来自于外部的线程的复位请求,那么就复位当前线程
     if(mbResetRequested)
     {
-        mlpLoopKeyFrameQueue.clear();
-        mLastLoopKFid=0;
-        mbResetRequested=false;
+        mlpLoopKeyFrameQueue.clear();   // 清空参与和进行回环检测的关键帧队列
+        mLastLoopKFid=0;                // 上一次没有和任何关键帧形成闭环关系
+        mbResetRequested=false;         // 复位请求标志复位
     }
 }
-
+// FIXME:
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
 {
     cout << "Starting Global Bundle Adjustment" << endl;
@@ -879,24 +940,28 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     }
 }
 
+// 由外部线程调用,请求终止当前线程
 void LoopClosing::RequestFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinishRequested = true;
 }
 
+// 当前线程调用,查看是否有外部线程请求当前线程
 bool LoopClosing::CheckFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     return mbFinishRequested;
 }
 
+// 有当前线程调用,执行完成该函数之后线程主函数退出,线程销毁
 void LoopClosing::SetFinish()
 {
     unique_lock<mutex> lock(mMutexFinish);
     mbFinished = true;
 }
 
+// 由外部线程调用,判断当前回环检测线程是否已经正确终止了
 bool LoopClosing::isFinished()
 {
     unique_lock<mutex> lock(mMutexFinish);
