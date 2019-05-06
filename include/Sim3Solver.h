@@ -36,16 +36,22 @@ class Sim3Solver
 {
 public:
 
+    // 构造函数,参数为:当前帧,候选闭环帧,足够的两帧的地图点
     Sim3Solver(KeyFrame* pKF1, KeyFrame* pKF2, const std::vector<MapPoint*> &vpMatched12, const bool bFixScale = true);
 
+    // 设置进行RANSAC时的参数
     void SetRansacParameters(double probability = 0.99, int minInliers = 6 , int maxIterations = 300);
 
     cv::Mat find(std::vector<bool> &vbInliers12, int &nInliers);
 
+    // 进行迭代计算
     cv::Mat iterate(int nIterations, bool &bNoMore, std::vector<bool> &vbInliers, int &nInliers);
 
+    // 得到计算的旋转矩阵
     cv::Mat GetEstimatedRotation();
+    // 得到计算的平移向量
     cv::Mat GetEstimatedTranslation();
+    // 得到估计的从候选帧到当前帧的变换尺度
     float GetEstimatedScale();
 
 

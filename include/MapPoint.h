@@ -262,11 +262,15 @@ public:
     long unsigned int mnBALocalForKF;
     long unsigned int mnFuseCandidateForKF;     ///< 在局部建图线程中使用,表示被用来进行地图点融合的关键帧(存储的是这个关键帧的id)
 
-    // Variables used by loop closing
+    // Variables used by loop closing -- 一般都是为了避免重复操作
+    /// 标记当前地图点是作为哪个"当前关键帧"的回环地图点(即回环关键帧上的地图点),在回环检测线程中被调用
     long unsigned int mnLoopPointForKF;
+    // 如果这个地图点对应的关键帧参与到了回环检测的过程中,那么在回环检测过程中已经使用了这个关键帧修正只有的位姿来修正了这个地图点,那么这个标志位置位
     long unsigned int mnCorrectedByKF;
     long unsigned int mnCorrectedReference;
+    // 全局BA优化后(如果当前地图点参加了的话),这里记录优化后的位姿
     cv::Mat mPosGBA;
+    // 如果当前点的位姿参与到了全局BA优化,那么这个变量记录了那个引起全局BA的"当前关键帧"的id
     long unsigned int mnBAGlobalForKF;
 
     ///全局BA中对当前点进行操作的时候使用的互斥量

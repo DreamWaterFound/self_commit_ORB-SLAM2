@@ -53,6 +53,7 @@ public:
                                        const bool &bFixScale);
 
     // if bFixScale is true, optimize SE3 (stereo,rgbd), Sim3 otherwise (mono)
+    // 闭环刚刚形成的时候,对当前关键帧和闭环关键帧之间的sim3变换的优化
     static int OptimizeSim3(KeyFrame* pKF1, KeyFrame* pKF2, std::vector<MapPoint *> &vpMatches1,
                             g2o::Sim3 &g2oS12, const float th2, const bool bFixScale);
 };

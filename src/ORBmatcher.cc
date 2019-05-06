@@ -383,6 +383,8 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
 
 // 根据Sim3变换，将每个vpPoints投影到pKF上，并根据尺度确定一个搜索区域，
 // 根据该MapPoint的描述子与该区域内的特征点进行匹配，如果匹配误差小于TH_LOW即匹配成功，更新vpMatched
+// 用在回环检测中,当已经得到的和"当前关键帧"形成闭环关系的"闭环关键帧"的时候,使用闭环关键帧的相邻关键帧(共视图)和它自个儿组成一个"闭环关键帧组",从这个组中得到
+// 所有关键帧地图点的集合,然后根据"当前关键帧"的sim3变换,向当前关键帧进行投影,力求得到更多,更精准的匹配
 int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapPoint*> &vpPoints, vector<MapPoint*> &vpMatched, int th)
 {
     // Get Calibration Parameters for later projection
@@ -1171,6 +1173,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
 
 // 投影MapPoints到KeyFrame中，并判断是否有重复的MapPoints
 // Scw为世界坐标系到pKF机体坐标系的Sim3变换，用于将世界坐标系下的vpPoints变换到机体坐标系
+// 这个函数是要返回要替代的地图点的，在回环纠正的过程中被调用
 int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
 {
     // Get Calibration Parameters for later projection
@@ -1286,7 +1289,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
             MapPoint* pMPinKF = pKF->GetMapPoint(bestIdx);
             // 如果这个MapPoint已经存在，则替换，
             // 这里不能轻易替换（因为MapPoint一般会被很多帧都可以观测到），这里先记录下来，之后调用Replace函数来替换
-            // ? 那么为什么前面的就可以直接被替换呢?
+            // ? 那么为什么前面的就可以直接被替换呢? -- 现在问题转换成为，为什么在回环纠正的过程中不能够直接替换地图点？
             if(pMPinKF)
             {
                 if(!pMPinKF->isBad())

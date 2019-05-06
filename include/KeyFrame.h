@@ -337,8 +337,11 @@ public:
     float mRelocScore;
 
     // Variables used by loop closing
+    // 经过全局BA优化后的相机的位姿
     cv::Mat mTcwGBA;
+    // 进行全局BA优化之前的当前关键帧的位姿. 之所以要记录这个是因为在全局优化之后还要根据该关键帧在优化之前的位姿来更新地图点,which地图点的参考关键帧就是该关键帧
     cv::Mat mTcwBefGBA;
+    // 记录是由于哪个"当前关键帧"触发的全局BA,用来防止重复写入的事情发生(浪费时间)
     long unsigned int mnBAGlobalForKF;
 
     // Calibration parameters

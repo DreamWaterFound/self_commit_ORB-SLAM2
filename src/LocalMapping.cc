@@ -774,7 +774,7 @@ cv::Mat LocalMapping::ComputeF12(KeyFrame *&pKF1, KeyFrame *&pKF2)
     return K1.t().inv()*t12x*R12*K2.inv();
 }
 
-// 外部线程调用,请求停止当前线程的工作
+// 外部线程调用,请求停止当前线程的工作; 其实是回环检测线程调用,来避免在进行全局优化的过程中局部建图线程添加新的关键帧
 void LocalMapping::RequestStop()
 {
     unique_lock<mutex> lock(mMutexStop);
@@ -813,6 +813,7 @@ bool LocalMapping::stopRequested()
 }
 
 // 释放当前还在缓冲区中的关键帧指针
+//? ! 现在感觉之前的理解好像有问题,这个函数由LoopClosing在执行了回环的关键帧组优化之后调用的,是为了恢复LoopMapping线程的正常工作的
 void LocalMapping::Release()
 {
     unique_lock<mutex> lock(mMutexStop);

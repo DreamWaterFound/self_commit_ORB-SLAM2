@@ -56,23 +56,24 @@ class KeyFrameDatabase;
 class LoopClosing
 {
 public:
-    /// 自定义数据类型
+    /// 自定义数据类型, ConsistentGroup.first对应每个“连续组”中的关键帧，ConsistentGroup.second为每个“连续组”的序号
     typedef pair<set<KeyFrame*>,int> ConsistentGroup;    
-    //? 可以关联多个值对?
-    typedef map<KeyFrame*,
-                g2o::Sim3,
-                std::less<KeyFrame*>,   // 返回一个判断不大于的函数对象
-                Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > // 为了能够使用Eigen库中的SSE和AVX指令集加速,需要将传统STL容器中的数据进行对齐处理
+    /// 存储关键帧对象和位姿的键值对,这里是map的完整构造函数
+    typedef map<KeyFrame*,                  //键
+                g2o::Sim3,                  //值
+                std::less<KeyFrame*>,       //排序算法
+                Eigen::aligned_allocator<std::pair<const KeyFrame*, g2o::Sim3> > // 指定分配器,和内存空间开辟有关. 为了能够使用Eigen库中的SSE和AVX指令集加速,需要将传统STL容器中的数据进行对齐处理
                 > KeyFrameAndPose;
 
 public:
 
     /**
      * @brief 构造函数
-     * @param[in] pMap          全局地图指针 //?
+     * @param[in] pMap          地图指针
      * @param[in] pDB           词袋数据库
      * @param[in] pVoc          词典
-     * @param[in] bFixScale     //?
+     * @param[in] bFixScale     表示sim3中的尺度是否要计算,对于双目和RGBD情况尺度是固定的,s=1,bFixScale=true;而单目下尺度是不确定的,此时bFixScale=false,sim
+     * 3中的s需要被计算
      */
     LoopClosing(Map* pMap, KeyFrameDatabase* pDB, ORBVocabulary* pVoc,const bool bFixScale);
     /** @brief 设置追踪线程的句柄
@@ -94,8 +95,13 @@ public:
     void RequestReset();
 
     // This function will run in a separate thread
+    /**
+     * @brief 全局BA线程,这个函数是这个线程的主函数
+     * @param[in] nLoopKF 看名字是闭环关键帧,但是实际上给的是当前关键帧的ID
+     */
     void RunGlobalBundleAdjustment(unsigned long nLoopKF);
 
+    // 在回环纠正的时候调用,查看当前是否已经有一个全局优化的线程在进行
     bool isRunningGBA(){
         unique_lock<std::mutex> lock(mMutexGBA);
         return mbRunningGBA;
@@ -120,7 +126,7 @@ protected:
      *  @return false 没有  */
     bool CheckNewKeyFrames();
 
-    /** @brief 检测回环,如果有的话就返回真  FIXME: */
+    /** @brief 检测回环,如果有的话就返回真 */
     bool DetectLoop();
 
     /**
@@ -135,6 +141,10 @@ protected:
      */
     bool ComputeSim3();
 
+    /**
+     * @brief 通过将闭环时相连关键帧的MapPoints投影到这些关键帧中，进行MapPoints检查与替换
+     * @param[in] CorrectedPosesMap 关联的当前帧组中的关键帧和相应的纠正后的位姿
+     */
     void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
 
     /**
@@ -167,6 +177,7 @@ protected:
 
     /// (全局)地图的指针
     Map* mpMap;
+    /// 追踪线程句柄
     Tracking* mpTracker;
 
     /// 关键帧数据库
@@ -183,22 +194,27 @@ protected:
     std::mutex mMutexLoopQueue;
 
     // Loop detector parameters
-    /// 一个参数,在构造函数中被设置为了3  //? 干什么用的呢?
+    /// 连续性阈值,构造函数中将其设置成为了3
     float mnCovisibilityConsistencyTh;
 
     // Loop detector variables
     /// 当前关键帧,其实称之为"当前正在处理的关键帧"更加合适
     KeyFrame* mpCurrentKF;
-    //? 回环匹配到的关键帧? 
+    // 最终检测出来的,和当前关键帧形成闭环的闭环关键帧
     KeyFrame* mpMatchedKF;
-    /// 高质量的,具有潜在回环关系的关键帧,以及一个整型信息的键值对的集合
+    /// 上一次执行的时候产生的连续组s
     std::vector<ConsistentGroup> mvConsistentGroups;
-    /// 从上面的关键帧中进行筛选之后得到的具有足够的"连续性"的关键帧
+    /// 从上面的关键帧中进行筛选之后得到的具有足够的"连续性"的关键帧 -- 这个其实也是相当于更高层级的、更加优质的闭环候选帧
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
+    /// 和当前关键帧相连的关键帧形成的"当前关键帧组"
     std::vector<KeyFrame*> mvpCurrentConnectedKFs;
+    /// 下面的变量中存储的地图点在"当前关键帧"中成功地找到了匹配点的地图点的集合
     std::vector<MapPoint*> mvpCurrentMatchedPoints;
+    /// 闭环关键帧上的所有相连关键帧的地图点
     std::vector<MapPoint*> mvpLoopMapPoints;
+    // 下面的变量的cv::Mat格式版本
     cv::Mat mScw;
+    // 当得到了当前关键帧的闭环关键帧以后,计算出来的从世界坐标系到当前帧的sim3变换
     g2o::Sim3 mg2oScw;
 
     /// 上一次闭环帧的id
@@ -209,8 +225,9 @@ protected:
     bool mbRunningGBA;
     /// 全局BA线程在收到停止请求之后是否停止的比标志 //? 可是直接使用上面变量的逆不就可以表示了吗? //? 表示全局BA工作是否正常结束?
     bool mbFinishedGBA;
-    /// 来自外部的信息,终止全局BA //?
+    /// 由当前线程调用,请求停止当前正在进行的全局BA
     bool mbStopGBA;
+    /// 在对和全局线程标志量有关的操作的时候使用的互斥量
     std::mutex mMutexGBA;
     /// 全局BA线程句柄
     std::thread* mpThreadGBA;
@@ -219,7 +236,7 @@ protected:
     /// 如果是在双目或者是RGBD输入的情况下,就要固定尺度,这个变量就是是否要固定尺度的标志
     bool mbFixScale;
 
-    //? 
+    /// 已经进行了的全局BA次数(包含中途被打断的)
     bool mnFullBAIdx;
 };
 
