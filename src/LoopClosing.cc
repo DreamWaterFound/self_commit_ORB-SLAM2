@@ -417,7 +417,7 @@ bool LoopClosing::ComputeSim3()
 
             // If Ransac reachs max. iterations discard keyframe
             // 经过n次循环，每次迭代5次，总共迭代 n*5 次
-            // 总迭代次数达到最大限制还没有求出合格的Sim3变换，该候选帧剔除
+            // 总迭代次数达到最大限制还没有求出合格的Sim3变换，该候选帧剔除 ; 也有可能是因为Sim3Solver处理后的点的数目还没有进行RANSAC就已经小于期望的内点个数了
             if(bNoMore)
             {
                 vbDiscarded[i]=true;
@@ -781,7 +781,7 @@ void LoopClosing::CorrectLoop()
     mpCurrentKF->AddLoopEdge(mpMatchedKF);
 
     // Launch a new thread to perform Global Bundle Adjustment
-    // STEP 8：新建一个线程用于全局BA优化
+    // STEP 8：新建一个线程用于全局quanjA优化
     // OptimizeEssentialGraph只是优化了一些主要关键帧的位姿，这里进行全局BA可以全局优化所有位姿和MapPoints
     mbRunningGBA = true;
     mbFinishedGBA = false;
@@ -868,7 +868,7 @@ void LoopClosing::ResetIfRequested()
         mbResetRequested=false;         // 复位请求标志复位
     }
 }
-// FIXME: 全局BA线程,这个是这个线程的主函数; 输入的函数参数看上去是闭环关键帧,但是在调用的时候给的其实是当前关键帧的id
+// 全局BA线程,这个是这个线程的主函数; 输入的函数参数看上去是闭环关键帧,但是在调用的时候给的其实是当前关键帧的id
 void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
 {
     cout << "Starting Global Bundle Adjustment" << endl;
