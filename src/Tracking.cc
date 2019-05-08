@@ -2068,12 +2068,12 @@ bool Tracking::Relocalization()
                 // 初始化PnPsolver
                 PnPsolver* pSolver = new PnPsolver(mCurrentFrame,vvpMapPointMatches[i]);
                 pSolver->SetRansacParameters(
-                    0.99,   //? 概率
-                    10,     //最小内点数
+                    0.99,   //用于计算RANSAC迭代次数理论值的概率
+                    10,     //最小内点数, NOTICE 但是要注意在程序中实际上是min(给定最小内点数,最小集,内点数理论值),不一定使用这个
                     300,    //最大迭代次数
-                    4,      //? 最小集?
-                    0.5,    //退出迭代的误差
-                    5.991); //? 目测是自由度为2的卡方检验的阈值?
+                    4,      //最小集(求解这个问题在一次采样中所需要采样的最少的点的个数,对于Sim3是3,EPnP是4),参与到最小内点数的确定过程中
+                    0.5,    //这个是表示(最小内点数/样本总数);实际上的RANSAC正常退出的时候所需要的最小内点数其实是根据这个量来计算得到的
+                    5.991); // 目测是自由度为2的卡方检验的阈值,作为内外点判定时的距离的baseline(程序中还会根据特征点所在的图层对这个阈值进行缩放的)
                 vpPnPsolvers[i] = pSolver;
                 nCandidates++;
             }
@@ -2102,7 +2102,7 @@ bool Tracking::Relocalization()
             vector<bool> vbInliers;     
             //内点数
             int nInliers;
-            //? 
+            // 表示RANSAC已经没有更多的迭代次数可用 -- 也就是说数据不够好，RANSAC也已经尽力了。。。
             bool bNoMore;
 
             // step 4：通过EPnP算法估计姿态
@@ -2110,7 +2110,7 @@ bool Tracking::Relocalization()
             cv::Mat Tcw = pSolver->iterate(5,bNoMore,vbInliers,nInliers);
 
             // If Ransac reachs max. iterations discard keyframe
-            //? 这里的迭代计算达到了最大值,应该怎么理解? 
+            // 如果这里的迭代已经尽力了。。。
             if(bNoMore)
             {
                 vbDiscarded[i]=true;
@@ -2207,6 +2207,7 @@ bool Tracking::Relocalization()
                     break;
                 }
             }//遍历所有的候选关键帧
+            // ? 大哥，这里PnPSolver 可不能够保证一定能够得到相机位姿啊？怎么办？
         }//一直运行,知道已经没有足够的关键帧,或者是已经有成功匹配上的关键帧
     }
 

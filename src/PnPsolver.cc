@@ -1,4 +1,15 @@
 /**
+ * @file PnPsolver.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief EPnP 相机位姿求解器
+ * @version 0.1
+ * @date 2019-05-08
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 * This file is a modified version of EPnP <http://cvlab.epfl.ch/EPnP/index.php>, see FreeBSD license below.
 *
@@ -82,6 +93,8 @@
 
 // step5:根据得到的p_w和对应的p_c，最小化重投影误差即可求解出R t
 
+
+
 #include <iostream>
 
 #include "PnPsolver.h"
@@ -97,12 +110,16 @@ using namespace std;
 namespace ORB_SLAM2
 {
 
+// 在大体的pipeline上和Sim3Solver差不多,都是 构造->设置RANSAC参数->外部调用迭代函数,进行计算->得到计算的结果
+
 // pcs表示3D点在camera坐标系下的坐标
 // pws表示3D点在世界坐标系下的坐标
 // us表示图像坐标系下的2D点坐标
 // alphas为真实3D点用4个虚拟控制点表达时的系数
+// 构造函数
 PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches):
-    pws(0), us(0), alphas(0), pcs(0), maximum_number_of_correspondences(0), number_of_correspondences(0), mnInliersi(0),
+    pws(0), us(0), alphas(0), pcs(0), //这里的四个变量都是指针啊,直接这样子写的原因可以参考函数 set_maximum_number_of_correspondences()
+    maximum_number_of_correspondences(0), number_of_correspondences(0), mnInliersi(0),
     mnIterations(0), mnBestInliers(0), N(0)
 {
     // 根据点数初始化容器的大小
@@ -113,7 +130,9 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
     mvKeyPointIndices.reserve(F.mvpMapPoints.size());
     mvAllIndices.reserve(F.mvpMapPoints.size());
 
+    // 生成地图点和特征点在当前求解器的vector中的下标
     int idx=0;
+    // 遍历给出的每一个地图点
     for(size_t i=0, iend=vpMapPointMatches.size(); i<iend; i++)
     {
         MapPoint* pMP = vpMapPointMatches[i];//依次获取一个MapPoint
@@ -136,7 +155,7 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
                 idx++;
             }
         }
-    }
+    } // 遍历给出的每一个地图点
 
     // Set camera calibration parameters
     fu = F.fx;
@@ -144,11 +163,14 @@ PnPsolver::PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches)
     uc = F.cx;
     vc = F.cy;
 
+    // 设置默认的RANSAC参数,这个和Sim3Solver中的操作是相同的
     SetRansacParameters();
 }
 
+// 析构函数
 PnPsolver::~PnPsolver()
 {
+  // 释放堆内存
   delete [] pws;
   delete [] us;
   delete [] alphas;
@@ -158,28 +180,39 @@ PnPsolver::~PnPsolver()
 // 设置RANSAC迭代的参数
 void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxIterations, int minSet, float epsilon, float th2)
 {
+    // 注意这次里在每一次采样的过程中,需要采样四个点,即最小集应该设置为4
+
+    // step 1 获取给定的参数
     mRansacProb = probability;
     mRansacMinInliers = minInliers;
     mRansacMaxIts = maxIterations;
-    mRansacEpsilon = epsilon;
-    mRansacMinSet = minSet;
+    mRansacEpsilon = epsilon;         
+    mRansacMinSet = minSet;           
 
+
+    // step 2 计算理论内点数,并且选 min(给定内点数,最小集,理论内点数) 作为最终在迭代过程中使用的最小内点数
     N = mvP2D.size(); // number of correspondences, 所有二维特征点个数
 
     mvbInliersi.resize(N);// inlier index, mvbInliersi记录每次迭代inlier的点
 
     // Adjust Parameters according to number of correspondences
-    int nMinInliers = N*mRansacEpsilon;// RANSAC的残差
+    // 再根据 epsilon 来计算理论上的内点数;
+    // NOTICE 实际在计算的过程中使用的 mRansacMinInliers = min(给定内点数,最小集,理论内点数)
+    int nMinInliers = N*mRansacEpsilon; 
     if(nMinInliers<mRansacMinInliers)
         nMinInliers=mRansacMinInliers;
     if(nMinInliers<minSet)
         nMinInliers=minSet;
     mRansacMinInliers = nMinInliers;
 
+    // step 3 根据敲定的"最小内点数"来调整 内点数/总体数 这个比例 epsilon
+
+    // 这个变量却是希望取得高一点,也可以理解为想让和调整之后的内点数 mRansacMinInliers 保持一致吧
     if(mRansacEpsilon<(float)mRansacMinInliers/N)
         mRansacEpsilon=(float)mRansacMinInliers/N;
 
-    // Set RANSAC iterations according to probability, epsilon, and max iterations
+    // step 4  根据给出的各种参数计算RANSAC的理论迭代次数,并且敲定最终在迭代过程中使用的RANSAC最大迭代次数
+    // Set RANSAC iterations according to probability, epsilon, and max iterations -- 这个部分和Sim3Solver中的操作是一样的
     int nIterations;
 
     if(mRansacMinInliers==N)//根据期望的残差大小来计算RANSAC需要迭代的次数
@@ -188,6 +221,8 @@ void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxI
         nIterations = ceil(log(1-mRansacProb)/log(1-pow(mRansacEpsilon,3)));
 
     mRansacMaxIts = max(1,min(nIterations,mRansacMaxIts));
+
+    // step 5 计算不同图层上的特征点在进行内点检验的时候,所使用的不同判断误差阈值
 
     mvMaxError.resize(mvSigma2.size());// 图像提取特征的时候尺度层数
     for(size_t i=0; i<mvSigma2.size(); i++)// 不同的尺度，设置不同的最大偏差
@@ -203,14 +238,14 @@ cv::Mat PnPsolver::find(vector<bool> &vbInliers, int &nInliers)
 //进行迭代计算
 cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInliers, int &nInliers)
 {
-    bNoMore = false;
+    bNoMore = false;        //已经达到最大迭代次数的标志
     vbInliers.clear();
-    nInliers=0;
+    nInliers=0;             // 当前次迭代时的内点数
 
-    // mRansacMinSet为每次RANSAC需要的特征点数，默认为4组3D-2D对应点
+    // mRansacMinSet 为每次RANSAC需要的特征点数，默认为4组3D-2D对应点,这里的操作是告知原EPnP代码
     set_maximum_number_of_correspondences(mRansacMinSet);
 
-    // N为所有2D点的个数, mRansacMinInliers为RANSAC迭代过程中最少的inlier数
+    // N为所有2D点的个数, mRansacMinInliers 为正常退出RANSAC迭代过程中最少的inlier数
     if(N<mRansacMinInliers)
     {
         bNoMore = true;
@@ -221,11 +256,18 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
     // vAvailableIndices为每次从mvAllIndices中随机挑选mRansacMinSet组3D-2D对应点进行一次RANSAC
     vector<size_t> vAvailableIndices;
 
+    // 当前的迭代次数id
     int nCurrentIterations = 0;
+
+    // 进行迭代的条件:
+    // 条件1: 历史进行的迭代次数少于最大迭代值
+    // 条件2: 当前进行的迭代次数少于当前函数给定的最大迭代值
     while(mnIterations<mRansacMaxIts || nCurrentIterations<nIterations)
     {
+        // 迭代次数更新
         nCurrentIterations++;
         mnIterations++;
+        // 清空已有的匹配点的计数,为新的一次迭代作准备
         reset_correspondences();
 
         vAvailableIndices = mvAllIndices;
@@ -235,24 +277,30 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
         {
             int randi = DUtils::Random::RandomInt(0, vAvailableIndices.size()-1);
 
+            // 将生成的这个索引映射到给定帧的特征点id
             int idx = vAvailableIndices[randi];
 
-            // 将对应的3D-2D压入到pws和us
+            // 将对应的3D-2D压入到pws和us. 这个过程中需要知道将这些点的信息存储到数组中的哪个位置,这个就由变量 number_of_correspondences 来指示了
             add_correspondence(mvP3Dw[idx].x,mvP3Dw[idx].y,mvP3Dw[idx].z,mvP2D[idx].x,mvP2D[idx].y);
 
+            // 从"可用索引表"中删除这个已经被使用的点
             vAvailableIndices[randi] = vAvailableIndices.back();
             vAvailableIndices.pop_back();
-        }
+        } // 选取最小集
 
         // Compute camera pose
+        // 计算相机的位姿
         compute_pose(mRi, mti);
 
         // Check inliers
+        // 内点外点的检查
         CheckInliers();
 
+        // 如果当前次迭代得到的内点数已经达到了合格的要求了
         if(mnInliersi>=mRansacMinInliers)
         {
             // If it is the best solution so far, save it
+            // 更新最佳的计算结果
             if(mnInliersi>mnBestInliers)
             {
                 mvbBestInliers = mvbInliersi;
@@ -265,28 +313,37 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
                 mBestTcw = cv::Mat::eye(4,4,CV_32F);
                 Rcw.copyTo(mBestTcw.rowRange(0,3).colRange(0,3));
                 tcw.copyTo(mBestTcw.rowRange(0,3).col(3));
-            }
+            } // 更新最佳的计算结果
 
-            if(Refine())
+            // 还要求精
+            if(Refine())   // 如果求精成功
             {
                 nInliers = mnRefinedInliers;
+                // 转录,作为计算结果
                 vbInliers = vector<bool>(mvpMapPointMatches.size(),false);
                 for(int i=0; i<N; i++)
                 {
                     if(mvbRefinedInliers[i])
                         vbInliers[mvKeyPointIndices[i]] = true;
                 }
+
+                // 对直接返回了求精之后的相机位姿
                 return mRefinedTcw.clone();
-            }
+            } // 如果求精成功
 
-        }
-    }
+        } // 如果当前次迭代得到的内点数已经达到了合格的要求了
+    } // 迭代
 
+    // 如果执行到这里,说明可能已经超过了上面的两种迭代次数中的一个了
+    // 如果是超过了程序中给定的最大迭代次数
     if(mnIterations>=mRansacMaxIts)
     {
+        // 没有更多的允许迭代次数了
         bNoMore=true;
+        // 但是如果我们目前得到的最好结果看上去还不错的话
         if(mnBestInliers>=mRansacMinInliers)
         {
+            // 返回计算结果
             nInliers=mnBestInliers;
             vbInliers = vector<bool>(mvpMapPointMatches.size(),false);
             for(int i=0; i<N; i++)
@@ -298,9 +355,11 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
         }
     }
 
+    // 如果也没有好的计算结果,只好说明迭代失败咯...
     return cv::Mat();
 }
 
+// FIXME: 求精?
 bool PnPsolver::Refine()
 {
     vector<int> vIndices;
@@ -350,6 +409,7 @@ bool PnPsolver::Refine()
 }
 
 // 通过之前求解的(R t)检查哪些3D-2D点对属于inliers
+// FIXME: 
 void PnPsolver::CheckInliers()
 {
     mnInliersi=0;
@@ -390,27 +450,35 @@ void PnPsolver::CheckInliers()
 // RANSAC需要很多次，maximum_number_of_correspondences为匹配对数最大值
 // 这个变量用于决定pws us alphas pcs容器的大小，因此只能逐渐变大不能减小
 // 如果maximum_number_of_correspondences之前设置的过小，则重新设置，并重新初始化pws us alphas pcs的大小
+// ↑ 泡泡机器人注释原文
+// To sum up: 这部分相当于是 ORB的代码和EPnP代码的一个"接口",设置最小集以及有关的参数
 void PnPsolver::set_maximum_number_of_correspondences(int n)
 {
+  // 如果当前的这个变量,小于最小集,
   if (maximum_number_of_correspondences < n) {
+    // 那么就先释放之前创建的数组 (NOTE 看到这里终于明白为什么在构造函数中这四个指针要先赋值为0了)
+    // ? 提问:ORB中使用到的这段代码是别人写的, 而且从这些处理手法上来看非常拙劣, 那开源协议是否允许我们重构这部分代码?
     if (pws != 0) delete [] pws;
     if (us != 0) delete [] us;
     if (alphas != 0) delete [] alphas;
     if (pcs != 0) delete [] pcs;
 
+    // 更新
     maximum_number_of_correspondences = n;
-    pws = new double[3 * maximum_number_of_correspondences];// 每个3D点有(X Y Z)三个值
-    us = new double[2 * maximum_number_of_correspondences];// 每个图像2D点有(u v)两个值
-    alphas = new double[4 * maximum_number_of_correspondences];// 每个3D点由四个控制点拟合，有四个系数
-    pcs = new double[3 * maximum_number_of_correspondences];// 每个3D点有(X Y Z)三个值
+    pws = new double[3 * maximum_number_of_correspondences];    // 每个3D点有(X Y Z)三个值
+    us = new double[2 * maximum_number_of_correspondences];     // 每个图像2D点有(u v)两个值
+    alphas = new double[4 * maximum_number_of_correspondences]; // 每个3D点由四个控制点拟合，有四个系数
+    pcs = new double[3 * maximum_number_of_correspondences];    // 每个3D点有(X Y Z)三个值
   }
 }
 
+// 清空当前已有的匹配点计数,为进行新的一次迭代作准备
 void PnPsolver::reset_correspondences(void)
 {
   number_of_correspondences = 0;
 }
 
+// 将给定的3D,2D点的数据压入到数组中
 void PnPsolver::add_correspondence(double X, double Y, double Z, double u, double v)
 {
   pws[3 * number_of_correspondences    ] = X;
@@ -420,6 +488,7 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
   us[2 * number_of_correspondences    ] = u;
   us[2 * number_of_correspondences + 1] = v;
 
+  // 当前次迭代中,已经采样的匹配点的个数;也用来指导这个"压入到数组"的过程中操作
   number_of_correspondences++;
 }
 
@@ -556,6 +625,7 @@ void PnPsolver::compute_pcs(void)
   }
 }
 
+// FIXME: 根据类成员变量中给出的匹配点,计算相机位姿
 double PnPsolver::compute_pose(double R[3][3], double t[3])
 {
   // 步骤1：获得EPnP算法中的四个控制点
