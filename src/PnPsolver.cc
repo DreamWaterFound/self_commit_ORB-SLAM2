@@ -495,40 +495,51 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
 void PnPsolver::choose_control_points(void)
 {
   // Take C0 as the reference points centroid:
-  // 步骤1：第一个控制点：参与PnP计算的参考3D点的几何中心
+  // step 1：第一个控制点：参与PnP计算的参考3D点的几何中心
   cws[0][0] = cws[0][1] = cws[0][2] = 0;
+  // 遍历每个匹配点中的3D点，然后对每个坐标轴加和
   for(int i = 0; i < number_of_correspondences; i++)
     for(int j = 0; j < 3; j++)
       cws[0][j] += pws[3 * i + j];
-
+  // 再对每个轴上取均值
   for(int j = 0; j < 3; j++)
     cws[0][j] /= number_of_correspondences;
 
 
   // Take C1, C2, and C3 from PCA on the reference points:
-  // 步骤2：计算其它三个控制点，C1, C2, C3通过PCA分解得到
-  // 将所有的3D参考点写成矩阵，(number_of_correspondences *　３)的矩阵
+  // step 2：计算其它三个控制点，C1, C2, C3通过PCA分解得到
+  // TODO 
+  // ref: https://www.zhihu.com/question/38417101
+  // ref: https://yjk94.wordpress.com/2016/11/11/pca-to-layman/
+
+  // 将所有的3D参考点写成矩阵，(number_of_correspondences * ３)的矩阵
   CvMat * PW0 = cvCreateMat(number_of_correspondences, 3, CV_64F);
 
-  double pw0tpw0[3 * 3], dc[3], uct[3 * 3];
-  CvMat PW0tPW0 = cvMat(3, 3, CV_64F, pw0tpw0);
-  CvMat DC      = cvMat(3, 1, CV_64F, dc);
-  CvMat UCt     = cvMat(3, 3, CV_64F, uct);
+  double pw0tpw0[3 * 3], dc[3], uct[3 * 3];         // 下面变量的数据区
+  CvMat PW0tPW0 = cvMat(3, 3, CV_64F, pw0tpw0);     // 如变量名所示.其实这里使用cv::Mat格式主要是为了进行SVD分解
+  CvMat DC      = cvMat(3, 1, CV_64F, dc);          // 分解上面矩阵得到的奇异值组成的矩阵
+  CvMat UCt     = cvMat(3, 3, CV_64F, uct);         // 分解上面矩阵得到的左奇异矩阵
 
-  // 步骤2.1：将存在pws中的参考3D点减去第一个控制点的坐标（相当于把第一个控制点作为原点）, 并存入PW0
+  // step 2.1：将存在pws中的参考3D点减去第一个控制点的坐标（相当于把第一个控制点作为原点）, 并存入PW0
   for(int i = 0; i < number_of_correspondences; i++)
     for(int j = 0; j < 3; j++)
       PW0->data.db[3 * i + j] = pws[3 * i + j] - cws[0][j];
 
-  // 步骤2.2：利用SVD分解P'P可以获得P的主分量
+  // step 2.2：利用SVD分解P'P可以获得P的主分量
   // 类似于齐次线性最小二乘求解的过程，
   // PW0的转置乘以PW0
+  // cvMulTransposed(A_src,Res_dst,order, delta=null,scale=1): Calculates Res=(A-delta)*(A-delta)^T (order=0) or (A-delta)^T*(A-delta) (order=1)
   cvMulTransposed(PW0, &PW0tPW0, 1);
-  cvSVD(&PW0tPW0, &DC, &UCt, 0, CV_SVD_MODIFY_A | CV_SVD_U_T);
+  cvSVD(&PW0tPW0,                         // A
+        &DC,                              // W
+        &UCt,                             // U
+        0,                                // V
+        CV_SVD_MODIFY_A | CV_SVD_U_T);    // flags
 
   cvReleaseMat(&PW0);
 
-  // 步骤2.3：得到C1, C2, C3三个3D控制点，最后加上之前减掉的第一个控制点这个偏移量
+  // step 2.3：得到C1, C2, C3三个3D控制点，最后加上之前减掉的第一个控制点这个偏移量
+  // 讲道理这里的条件不应写成4,而应该是变量 number_of_correspondences 啊
   for(int i = 1; i < 4; i++) {
     double k = sqrt(dc[i - 1] / number_of_correspondences);
     for(int j = 0; j < 3; j++)
@@ -537,18 +548,21 @@ void PnPsolver::choose_control_points(void)
 }
 
 // 求解四个控制点的系数alphas
-// (a2 a3 a4)' = inverse(cws2-cws1 cws3-cws1 cws4-cws1)*(pws-cws1)，a1 = 1-a2-a3-a4
 // 每一个3D控制点，都有一组alphas与之对应
 // cws1 cws2 cws3 cws4为四个控制点的坐标
 // pws为3D参考点的坐标
+// (a2 a3 a4)' = inverse(cws2-cws1 cws3-cws1 cws4-cws1)*(pws-cws1)，a1 = 1-a2-a3-a4
+// 四个控制点相当于确定了一个子坐标系,原点是c1,另外三个轴的非单位向量是cws2-cws1 cws3-cws1 cws4-cws1
+// 上式中 pws-cws1 是当前遍历的空间点到控制点1的距离(三维向量)(也就是到这个子坐标系原点的距离),然后投影到这个子坐标系的三个轴上,并且使用这三个"轴向量"的长度来表示
+// 最后a1要将这个坐标形成 4x1 的齐次坐标表达形式 -- 齐次坐标的表示也是这么来的
 void PnPsolver::compute_barycentric_coordinates(void)
 {
   double cc[3 * 3], cc_inv[3 * 3];
-  CvMat CC     = cvMat(3, 3, CV_64F, cc);
-  CvMat CC_inv = cvMat(3, 3, CV_64F, cc_inv);
+  CvMat CC     = cvMat(3, 3, CV_64F, cc);       // 另外三个控制点在控制点坐标系下的坐标
+  CvMat CC_inv = cvMat(3, 3, CV_64F, cc_inv);   // 上面这个矩阵的逆矩阵
 
   // 第一个控制点在质心的位置，后面三个控制点减去第一个控制点的坐标（以第一个控制点为原点）
-  // 步骤1：减去质心后得到x y z轴
+  // step 1：减去质心后得到x y z轴
   // 
   // cws的排列 |cws1_x cws1_y cws1_z|  ---> |cws1|
   //          |cws2_x cws2_y cws2_z|       |cws2|
@@ -558,23 +572,27 @@ void PnPsolver::compute_barycentric_coordinates(void)
   // cc的排列  |cc2_x cc3_x cc4_x|  --->|cc2 cc3 cc4|
   //          |cc2_y cc3_y cc4_y|
   //          |cc2_z cc3_z cc4_z|
-  for(int i = 0; i < 3; i++)
-    for(int j = 1; j < 4; j++)
-      cc[3 * i + j - 1] = cws[j][i] - cws[0][i];
+  for(int i = 0; i < 3; i++)                      // x y z 轴
+    for(int j = 1; j < 4; j++)                    // 哪个控制点
+      cc[3 * i + j - 1] = cws[j][i] - cws[0][i];  // 坐标索引中的-1是考虑到跳过了最初的控制点0
 
   cvInvert(&CC, &CC_inv, CV_SVD);
   double * ci = cc_inv;
   for(int i = 0; i < number_of_correspondences; i++) {
-    double * pi = pws + 3 * i;// pi指向第i个3D点的首地址
-    double * a = alphas + 4 * i;// a指向第i个控制点系数alphas的首地址
+    double * pi = pws + 3 * i;                    // pi指向第i个3D点的首地址
+    double * a = alphas + 4 * i;                  // a指向第i个控制点系数alphas的首地址
 
     // pi[]-cws[0][]表示将pi和步骤1进行相同的平移
+    // 生成a2,a3,a4
     for(int j = 0; j < 3; j++)
+      // +1 是因为跳过了a0
       a[1 + j] = ci[3 * j    ] * (pi[0] - cws[0][0]) +
                  ci[3 * j + 1] * (pi[1] - cws[0][1]) +
                  ci[3 * j + 2] * (pi[2] - cws[0][2]);
+    // 最后计算用于进行归一化的a0
     a[0] = 1.0f - a[1] - a[2] - a[3];
-  }
+    // HERE
+  } // 遍历每一个匹配点
 }
 
 // 填充最小二乘的M矩阵
@@ -628,9 +646,10 @@ void PnPsolver::compute_pcs(void)
 // FIXME: 根据类成员变量中给出的匹配点,计算相机位姿
 double PnPsolver::compute_pose(double R[3][3], double t[3])
 {
-  // 步骤1：获得EPnP算法中的四个控制点
+  // step 1：获得EPnP算法中的四个控制点
   choose_control_points();
-  // 步骤2：计算世界坐标系下每个3D点用4个控制点线性表达时的系数alphas，公式1
+  // step 2：计算世界坐标系下每个3D点用4个控制点线性表达时的系数alphas，公式1
+  // HERE
   compute_barycentric_coordinates();
 
   // 步骤3：构造M矩阵，公式(3)(4)-->(5)(6)(7)

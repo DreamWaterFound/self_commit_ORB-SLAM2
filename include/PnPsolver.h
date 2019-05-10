@@ -144,7 +144,9 @@ public:
   void print_pose(const double R[3][3], const double t[3]);
   double reprojection_error(const double R[3][3], const double t[3]);
 
+  /** @brief 从给定的匹配点中计算出四个控制点(控制点的概念参考EPnP原文) */
   void choose_control_points(void);
+  /**  @brief 计算匹配的3D点在使用控制点坐标系表示的时候的 alpha系数  */
   void compute_barycentric_coordinates(void);
   void fill_M(CvMat * M, const int row, const double * alphas, const double u, const double v);
   void compute_ccs(const double * betas, const double * ut);
@@ -187,7 +189,8 @@ public:
   int maximum_number_of_correspondences;                          ///< 每次RANSAC计算的过程中使用的匹配点对数的最大值,其实应该和最小集的大小是完全相同的
   int number_of_correspondences;                                  ///< 当前次迭代中,已经采样的匹配点的个数;也用来指导这个"压入到数组"的过程中操作
 
-  double cws[4][3], ccs[4][3];
+  double cws[4][3],                                               ///< 存储控制点在世界坐标系下的坐标，第一维表示是哪个控制点，第二维表示是哪个坐标(x,y,z)
+         ccs[4][3];                                    
   double cws_determinant;
 
   vector<MapPoint*> mvpMapPointMatches;                           ///< 存储构造的时候给出的地图点  //? 已经经过匹配了的吗?
