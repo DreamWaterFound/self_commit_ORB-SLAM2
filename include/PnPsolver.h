@@ -148,24 +148,73 @@ public:
   void choose_control_points(void);
   /**  @brief 计算匹配的3D点在使用控制点坐标系表示的时候的 alpha系数  */
   void compute_barycentric_coordinates(void);
+  /**
+   * @brief 根据提供的每一对点的数据来填充Moment Matrix M. 每对匹配点的数据可以填充两行
+   * @param[in] M                cvMat对应,存储矩阵M
+   * @param[in] row              开始填充数据的行
+   * @param[in] alphas           3D点,为这个空间点在当前控制点坐标系下的表示(a1~a4)
+   * @param[in] u                2D点坐标
+   * @param[in] v                2D点坐标 
+   */
   void fill_M(CvMat * M, const int row, const double * alphas, const double u, const double v);
   void compute_ccs(const double * betas, const double * ut);
   void compute_pcs(void);
 
   void solve_for_sign(void);
 
+  /**
+   * @brief //? TODO不知道怎么说?
+   * 
+   * @param[in]  L_6x10  矩阵L
+   * @param[in]  Rho     非齐次项 \rho, 列向量
+   * @param[out] betas   计算得到的beta
+   */
   void find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void qr_solve(CvMat * A, CvMat * b, CvMat * X);
 
+  /**
+   * @brief 计算两个三维向量的点乘
+   * @param[in] v1 向量1
+   * @param[in] v2 向量2
+   * @return double 计算结果
+   */
   double dot(const double * v1, const double * v2);
+  /**
+   * @brief 计算两个三维向量所表示的空间点的欧式距离的平方
+   * @param[in] p1   点1
+   * @param[in] p2   点2
+   * @return double  计算的距离结果
+   */
   double dist2(const double * p1, const double * p2);
-
+ 
+  /**
+   * @brief 计算论文式13中的向量\rho
+   * @param[put] rho  计算结果
+   */
   void compute_rho(double * rho);
+  /**
+   * @brief 计算矩阵L,论文式13中的L矩阵,不过这里的是按照N=4的时候计算的
+   * @param[in]  ut               v_i组成的矩阵,也就是奇异值分解之后得到的做奇异矩阵
+   * @param[out] l_6x10           计算结果 
+   */
   void compute_L_6x10(const double * ut, double * l_6x10);
-
+  /**
+   * @brief 对计算出来的Beta结果进行高斯牛顿法优化,求精. 过程参考EPnP论文中式(15) 
+   * @param[in]  L_6x10            L矩阵
+   * @param[in]  Rho               Rho向量
+   * @param[out] current_betas     优化之后的Beta
+   */
   void gauss_newton(const CvMat * L_6x10, const CvMat * Rho, double current_betas[4]);
+  /**
+   * @brief 对计算出来的结果进行高斯牛顿法优化,求精. 过程参考EPnP论文中式(15) //? HACK
+   * @param[in] l_6x10 L矩阵
+   * @param[in] rho    Rho矩向量
+   * @param[in] cb     
+   * @param[in] A 
+   * @param[in] b 
+   */
   void compute_A_and_b_gauss_newton(const double * l_6x10, const double * rho,
 				    double cb[4], CvMat * A, CvMat * b);
 
@@ -183,9 +232,12 @@ public:
   double uc, vc, fu, fv;                                          ///< 相机内参
 
   double * pws,                                                   ///< 3D点在世界坐标系下在坐标
+                                                                  //   组织形式: x1 y1 z1 | x2 y2 z2 | ...
          * us,                                                    ///< 图像坐标系下的2D点坐标
+                                                                  //   组织形式: u1 v1 | u2 v2 | ...
          * alphas,                                                ///< 真实3D点用4个虚拟控制点表达时的系数
-         * pcs;                                                   ///< 3D点在当前帧相机坐标系下在坐标 //? 核实这组变量的意义
+                                                                  //   组织形式: a11 a12 a13 a14 | a21 a22 a23 a24 | ... 每个匹配点都有自己的a1~a4
+         * pcs;                                                   ///< 3D点在当前帧相机坐标系下的坐标 
   int maximum_number_of_correspondences;                          ///< 每次RANSAC计算的过程中使用的匹配点对数的最大值,其实应该和最小集的大小是完全相同的
   int number_of_correspondences;                                  ///< 当前次迭代中,已经采样的匹配点的个数;也用来指导这个"压入到数组"的过程中操作
 

@@ -541,8 +541,10 @@ void PnPsolver::choose_control_points(void)
   // step 2.3：得到C1, C2, C3三个3D控制点，最后加上之前减掉的第一个控制点这个偏移量
   // 讲道理这里的条件不应写成4,而应该是变量 number_of_correspondences 啊
   for(int i = 1; i < 4; i++) {
+    // 这里也是只有前三个奇异值 
     double k = sqrt(dc[i - 1] / number_of_correspondences);
     for(int j = 0; j < 3; j++)
+      //? 但是这里为什么要乘k？
       cws[i][j] = cws[0][j] + k * uct[3 * (i - 1) + j];
   }
 }
@@ -586,12 +588,18 @@ void PnPsolver::compute_barycentric_coordinates(void)
     // 生成a2,a3,a4
     for(int j = 0; j < 3; j++)
       // +1 是因为跳过了a0
+      /*    这里的原理基本上是这个样子：(这里公式的下标和程序中的不一样，是从1开始的)
+       *    cp=p_i-c1
+       *    cp=a1(c1-c1)+a2(c2-c1)+a3(c3-c1)+a4(c4-c1)
+       *      => a2*cc2+a3*cc3+a4*cc4
+       *    [cc2 cc3 cc4] * [a2 a3 a4]^T = cp
+       *  => [a2 a3 a4]^T = [cc2 cc3 cc4]^(-1) * cp
+       */      
       a[1 + j] = ci[3 * j    ] * (pi[0] - cws[0][0]) +
                  ci[3 * j + 1] * (pi[1] - cws[0][1]) +
                  ci[3 * j + 2] * (pi[2] - cws[0][2]);
     // 最后计算用于进行归一化的a0
     a[0] = 1.0f - a[1] - a[2] - a[3];
-    // HERE
   } // 遍历每一个匹配点
 }
 
@@ -599,13 +607,20 @@ void PnPsolver::compute_barycentric_coordinates(void)
 // 对每一个3D参考点：
 // |ai1 0    -ai1*ui, ai2  0    -ai2*ui, ai3 0   -ai3*ui, ai4 0   -ai4*ui|
 // |0   ai1  -ai1*vi, 0    ai2  -ai2*vi, 0   ai3 -ai3*vi, 0   ai4 -ai4*vi|
-// 其中i从0到4
+// 其中i从0到4 -- //? 这里师兄写错了吧!!!! 是j从0到4,但是上面已经完善了
+// 应该是这个样子:
+// |ai1*fu, 0,      ai1(uc-ui),|  ai2*fu, 0,      ai2(uc-ui),|  ai3*fu, 0,      ai3(uc-ui),|  ai4*fu, 0,      ai4(uc-ui)| 
+// |0,      ai1*fv, ai1(vc-vi),|  0,      ai2*fv, ai2(vc-vi),|  0,      ai3*fv, ai3(vc-vi),|  0,      ai4*fv, ai4(vc-vi)|
+// 每一个特征点i有两行,每一行根据j=1,2,3,4可以分成四个部分,这也就是下面的for循环中所进行的工作
 void PnPsolver::fill_M(CvMat * M,
 		  const int row, const double * as, const double u, const double v)
 {
+  // 第一行起点
   double * M1 = M->data.db + row * 12;
+  // 第二行起点
   double * M2 = M1 + 12;
 
+  // 
   for(int i = 0; i < 4; i++) {
     M1[3 * i    ] = as[i] * fu;
     M1[3 * i + 1] = 0.0;
@@ -649,41 +664,46 @@ double PnPsolver::compute_pose(double R[3][3], double t[3])
   // step 1：获得EPnP算法中的四个控制点
   choose_control_points();
   // step 2：计算世界坐标系下每个3D点用4个控制点线性表达时的系数alphas，公式1
-  // HERE
   compute_barycentric_coordinates();
 
-  // 步骤3：构造M矩阵，公式(3)(4)-->(5)(6)(7)
+  // step 3：构造M矩阵，EPnP原始论文中公式(3)(4)-->(5)(6)(7); 矩阵的大小为 2n*12 ,n 为使用的匹配点的对数
   CvMat * M = cvCreateMat(2 * number_of_correspondences, 12, CV_64F);
 
+  // 根据每一对匹配点的数据来填充矩阵M中的数据
   for(int i = 0; i < number_of_correspondences; i++)
     fill_M(M, 2 * i, alphas + 4 * i, us[2 * i], us[2 * i + 1]);
 
   double mtm[12 * 12], d[12], ut[12 * 12];
   CvMat MtM = cvMat(12, 12, CV_64F, mtm);
-  CvMat D   = cvMat(12,  1, CV_64F, d);
-  CvMat Ut  = cvMat(12, 12, CV_64F, ut);
+  CvMat D   = cvMat(12,  1, CV_64F, d);     // 奇异值
+  CvMat Ut  = cvMat(12, 12, CV_64F, ut);    // 左奇异向量
 
-  // 步骤3：求解Mx = 0
+  // step 4：求解Mx = 0
   // SVD分解M'M
   cvMulTransposed(M, &MtM, 1);
-  cvSVD(&MtM, &D, &Ut, 0, CV_SVD_MODIFY_A | CV_SVD_U_T);//得到向量ut
+  cvSVD(&MtM, &D, &Ut, 0, CV_SVD_MODIFY_A | CV_SVD_U_T);//得到向量ut -- 其实就是EPnP论文式(8)中的vi
   cvReleaseMat(&M);
 
+  // EPnP论文中式13中的L和\rho
   double l_6x10[6 * 10], rho[6];
   CvMat L_6x10 = cvMat(6, 10, CV_64F, l_6x10);
   CvMat Rho    = cvMat(6,  1, CV_64F, rho);
 
+  // 计算这两个量,6x10是先准备按照EPnP论文中的N=4来计算的
   compute_L_6x10(ut, l_6x10);
   compute_rho(rho);
 
-  double Betas[4][4], rep_errors[4];
-  double Rs[4][3][3], ts[4][3];
+  double Betas[4][4],         // 本质上就四个beta1~4,但是这里有四种情况(第一维度表示)
+         rep_errors[4];       //? 迭代误差? 重投影误差?
+  double Rs[4][3][3],         //每一种情况迭代优化后得到的旋转矩阵
+         ts[4][3];            //每一种情况迭代优化后得到的平移向量
 
   // 不管什么情况，都假设论文中N=4，并求解部分betas（如果全求解出来会有冲突）
   // 通过优化得到剩下的betas
   // 最后计算R t
 
-  // EPnP论文公式10 15
+  // EPnP论文公式10 15 //? ?
+  //? Betas[0]呢? 还是说这里计算的其实是N=2时的情况(程序中下标从0开始)?
   find_betas_approx_1(&L_6x10, &Rho, Betas[1]);
   gauss_newton(&L_6x10, &Rho, Betas[1]);
   rep_errors[1] = compute_R_and_t(ut, Betas[1], Rs[1], ts[1]);
@@ -716,6 +736,7 @@ void PnPsolver::copy_R_and_t(const double R_src[3][3], const double t_src[3],
   }
 }
 
+// 计算两个三维向量所表示的空间点的欧式距离的平方
 double PnPsolver::dist2(const double * p1, const double * p2)
 {
   return
@@ -724,6 +745,7 @@ double PnPsolver::dist2(const double * p1, const double * p2)
     (p1[2] - p2[2]) * (p1[2] - p2[2]);
 }
 
+// 计算两个三维向量的点乘
 double PnPsolver::dot(const double * v1, const double * v2)
 {
   return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
@@ -844,9 +866,9 @@ double PnPsolver::compute_R_and_t(const double * ut, const double * betas,
   return reprojection_error(R, t);
 }
 
-// betas10        = [B11 B12 B22 B13 B23 B33 B14 B24 B34 B44]
-// betas_approx_1 = [B11 B12     B13         B14]
-
+// betas10        = [B11 B12 B22 B13 B23 B33 B14 B24 B34 B44]  -- L_6x10中每一行的内容
+// betas_approx_1 = [B11 B12     B13         B14            ]  -- L_6x4 中一行提取出来的内容
+// ? 为什么要计算这个 4 的情况?
 void PnPsolver::find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho,
 			       double * betas)
 {
@@ -854,6 +876,7 @@ void PnPsolver::find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho,
   CvMat L_6x4 = cvMat(6, 4, CV_64F, l_6x4);
   CvMat B4    = cvMat(4, 1, CV_64F, b4);
 
+  // 提取完整L矩阵中当前计算需要的的内容;分6行依次提取
   for(int i = 0; i < 6; i++) {
     cvmSet(&L_6x4, i, 0, cvmGet(L_6x10, i, 0));
     cvmSet(&L_6x4, i, 1, cvmGet(L_6x10, i, 1));
@@ -861,8 +884,9 @@ void PnPsolver::find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho,
     cvmSet(&L_6x4, i, 3, cvmGet(L_6x10, i, 6));
   }
 
+  // SVD方式求解方程组 L_6x4 * B4 = Rho
   cvSolve(&L_6x4, Rho, &B4, CV_SVD);
-
+  // 得到的解是 b00 b01 b02 b03 因此解出来b00即可
   if (b4[0] < 0) {
     betas[0] = sqrt(-b4[0]);
     betas[1] = -b4[1] / betas[0];
@@ -945,17 +969,35 @@ void PnPsolver::compute_L_6x10(const double * ut, double * l_6x10)
 {
   const double * v[4];
 
-  v[0] = ut + 12 * 11;
+  // 分别指向左奇异值矩阵的后四行,因为考虑到仿射相机模型时N=4,有四个向量v[0]~v[3],这几个向量的值就从这里提取出来;
+  // 其中的灭一个向量v[i]都有一个完整的,差了一个系数\beta[i]的控制点在相机坐标系下的坐标的估计v[i]^[0]~v[i]^[3]
+  v[0] = ut + 12 * 11;    // v[0] : v[0][0]~v[0][2]  => v[0]^[0]  , * \beta_0 = c0  (理论上)
+                          //        v[0][3]~v[0][5]  => v[0]^[1]  , * \beta_0 = c1 
+                          //        v[0][6]~v[0][8]  => v[0]^[2]  , * \beta_0 = c2
+                          //        v[0][9]~v[0][11] => v[0]^[3]  , * \beta_0 = c3
   v[1] = ut + 12 * 10;
   v[2] = ut + 12 *  9;
   v[3] = ut + 12 *  8;
 
+  // 计算"v差"的中间变量,和EPnP论文中式(12)有关
+  // 4-最多四个向量v 6-四对点一共有六中两两组合的方式 3-得到的差是一个三维的列向量
   double dv[4][6][3];
 
+  // ! 下面这一段的注释是错误的,不要看
+  // N=2时: beta11 beta12 beta22
+  // N=3时: beta11 beta12 beta13 beta22 beta23 beta33
+  // N=4时: beta11 beta12 beta13 beta14 beta22 beta23 beta24 beta33 beta34 beta44
+  // 为了方便我们这里直接生成N=4时候的情况. 控制第一个下标的就是a,第二个下标的就是b,不过下面的循环中下标都是从0开始的
+
+  // 对于上面的每一个向量v[i]
   for(int i = 0; i < 4; i++) {
+    // 每一个向量v[i]可以提供四个控制点的"雏形"v[i]^[0]~v[i]^[3]
+    // 这四个"雏形"两两组合一共有六种组合方式: 01 02 03 12 13 23
+    // 下面的a变量就是前面的那个id,b就是后面的那个id
     int a = 0, b = 1;
     for(int j = 0; j < 6; j++) {
-      dv[i][j][0] = v[i][3 * a    ] - v[i][3 * b];
+      // dv[i][j]=v[i]^[a]-v[i]^[b], 两个"雏形"作差
+      dv[i][j][0] = v[i][3 * a    ] - v[i][3 * b    ];
       dv[i][j][1] = v[i][3 * a + 1] - v[i][3 * b + 1];
       dv[i][j][2] = v[i][3 * a + 2] - v[i][3 * b + 2];
 
@@ -967,26 +1009,28 @@ void PnPsolver::compute_L_6x10(const double * ut, double * l_6x10)
     }
   }
 
+  // 生成L矩阵的每一行
   for(int i = 0; i < 6; i++) {
     double * row = l_6x10 + 10 * i;
-
-    row[0] =        dot(dv[0][i], dv[0][i]);
-    row[1] = 2.0f * dot(dv[0][i], dv[1][i]);
-    row[2] =        dot(dv[1][i], dv[1][i]);
-    row[3] = 2.0f * dot(dv[0][i], dv[2][i]);
-    row[4] = 2.0f * dot(dv[1][i], dv[2][i]);
-    row[5] =        dot(dv[2][i], dv[2][i]);
-    row[6] = 2.0f * dot(dv[0][i], dv[3][i]);
-    row[7] = 2.0f * dot(dv[1][i], dv[3][i]);
-    row[8] = 2.0f * dot(dv[2][i], dv[3][i]);
-    row[9] =        dot(dv[3][i], dv[3][i]);
+    // 计算每一行中的每一个元素,总共是10个元素      // 对应的\beta列向量
+    row[0] =        dot(dv[0][i], dv[0][i]);  //*b11
+    row[1] = 2.0f * dot(dv[0][i], dv[1][i]);  //*b12
+    row[2] =        dot(dv[1][i], dv[1][i]);  //*b22
+    row[3] = 2.0f * dot(dv[0][i], dv[2][i]);  //*b13
+    row[4] = 2.0f * dot(dv[1][i], dv[2][i]);  //*b23
+    row[5] =        dot(dv[2][i], dv[2][i]);  //*b33
+    row[6] = 2.0f * dot(dv[0][i], dv[3][i]);  //*b14
+    row[7] = 2.0f * dot(dv[1][i], dv[3][i]);  //*b24
+    row[8] = 2.0f * dot(dv[2][i], dv[3][i]);  //*b34
+    row[9] =        dot(dv[3][i], dv[3][i]);  //*b44
   }
 }
 
 // 计算四个控制点任意两点间的距离，总共6个距离
 void PnPsolver::compute_rho(double * rho)
 {
-  rho[0] = dist2(cws[0], cws[1]);
+  // 四个点两两组合一共有6中组合方式: 01 02 03 12 13 23
+  rho[0] = dist2(cws[0], cws[1]); 
   rho[1] = dist2(cws[0], cws[2]);
   rho[2] = dist2(cws[0], cws[3]);
   rho[3] = dist2(cws[1], cws[2]);
@@ -997,10 +1041,14 @@ void PnPsolver::compute_rho(double * rho)
 void PnPsolver::compute_A_and_b_gauss_newton(const double * l_6x10, const double * rho,
 					double betas[4], CvMat * A, CvMat * b)
 {
+  // 一共有六个方程组, 对每一行(也就是每一个方程展开遍历)
   for(int i = 0; i < 6; i++) {
+    // 获得矩阵L中的行指针
     const double * rowL = l_6x10 + i * 10;
+
     double * rowA = A->data.db + i * 4;
 
+    // HERE 这里的雅克比是怎么计算的????
     rowA[0] = 2 * rowL[0] * betas[0] +     rowL[1] * betas[1] +     rowL[3] * betas[2] +     rowL[6] * betas[3];
     rowA[1] =     rowL[1] * betas[0] + 2 * rowL[2] * betas[1] +     rowL[4] * betas[2] +     rowL[7] * betas[3];
     rowA[2] =     rowL[3] * betas[0] +     rowL[4] * betas[1] + 2 * rowL[5] * betas[2] +     rowL[8] * betas[3];
@@ -1008,31 +1056,36 @@ void PnPsolver::compute_A_and_b_gauss_newton(const double * l_6x10, const double
 
     cvmSet(b, i, 0, rho[i] -
 	   (
-	    rowL[0] * betas[0] * betas[0] +
-	    rowL[1] * betas[0] * betas[1] +
-	    rowL[2] * betas[1] * betas[1] +
-	    rowL[3] * betas[0] * betas[2] +
-	    rowL[4] * betas[1] * betas[2] +
-	    rowL[5] * betas[2] * betas[2] +
-	    rowL[6] * betas[0] * betas[3] +
-	    rowL[7] * betas[1] * betas[3] +
-	    rowL[8] * betas[2] * betas[3] +
-	    rowL[9] * betas[3] * betas[3]
+	    rowL[0] * betas[0] * betas[0] +     //b00 b11
+	    rowL[1] * betas[0] * betas[1] +     //b01 b12
+	    rowL[2] * betas[1] * betas[1] +     //b11 b22
+	    rowL[3] * betas[0] * betas[2] +     //b02 b13
+	    rowL[4] * betas[1] * betas[2] +     //b12 b23
+	    rowL[5] * betas[2] * betas[2] +     //b22 b33
+	    rowL[6] * betas[0] * betas[3] +     //b03 b14
+	    rowL[7] * betas[1] * betas[3] +     //b13 b24
+	    rowL[8] * betas[2] * betas[3] +     //b23 b34
+	    rowL[9] * betas[3] * betas[3]       //b33 b44
 	    ));
   }
 }
 
+// 对计算出来的Beta结果进行高斯牛顿法优化,求精. 过程参考EPnP论文中式(15) 
 void PnPsolver::gauss_newton(const CvMat * L_6x10, const CvMat * Rho,
 			double betas[4])
 {
+  // 只进行5次迭代
   const int iterations_number = 5;
 
+  // 参考论文式(13)中的非齐次方程组的形式
   double a[6*4], b[6], x[4];
-  CvMat A = cvMat(6, 4, CV_64F, a);
-  CvMat B = cvMat(6, 1, CV_64F, b);
-  CvMat X = cvMat(4, 1, CV_64F, x);
+  CvMat A = cvMat(6, 4, CV_64F, a);   // 系数矩阵
+  CvMat B = cvMat(6, 1, CV_64F, b);   // 非齐次项
+  CvMat X = cvMat(4, 1, CV_64F, x);   // 待求解的量
 
+  // 对于每次迭代过程
   for(int k = 0; k < iterations_number; k++) {
+    // HERE
     compute_A_and_b_gauss_newton(L_6x10->data.db, Rho->data.db,
 				 betas, &A, &B);
     qr_solve(&A, &B, &X);
