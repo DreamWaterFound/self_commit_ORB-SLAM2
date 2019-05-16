@@ -1038,22 +1038,87 @@ void PnPsolver::compute_rho(double * rho)
   rho[5] = dist2(cws[2], cws[3]);
 }
 
+// 计算高斯牛顿法优化时,增量方程中的系数矩阵和非齐次项
 void PnPsolver::compute_A_and_b_gauss_newton(const double * l_6x10, const double * rho,
 					double betas[4], CvMat * A, CvMat * b)
 {
-  // 一共有六个方程组, 对每一行(也就是每一个方程展开遍历)
+  /** 根据前面函数 gauss_newton 中的一些工作,可以发现这里的系数矩阵其实就是目标函数雅克比的转置. 原目标函数:
+   * \f$ f(\mathbf{\beta})=\sum_{(i,j \  s.t. \  i<j)} \left( ||\mathbf{c}^c_i-\mathbf{c}^c_j ||^2 - ||\mathbf{c}^w_i-\mathbf{c}^w_j ||^2 \right)  \f$ 
+   * 然后观察一下每一项的组成: \f$ ||\mathbf{c}^c_i-\mathbf{c}^c_j ||^2  \f$ 由论文中式12可以发现就对应着矩阵 L 中的一行,
+   * 同样地对于 \f$ ||\mathbf{c}^w_i-\mathbf{c}^w_j ||^2  \f$ 则对应着式(13)中向量 \f$  \mathbf{\rho} \f$ 的每一行.所以目标函数完全可以写成矩阵的形式:
+   * \f$ f(\mathbf{\beta})=\mathbf{L}\mathbf{\bar{\beta}}-\mathbf{\rho}  \f$
+   * 注意这里使用的符号:
+   * \f$ \mathbf{\bar{\beta}}= \begin{bmatrix} \beta_{11}\\\beta_{12}\\\beta_{22}\\\beta_{13}\\\beta_{23}\\\beta_{33}\\\beta_{14}\\\beta_{24}\\\beta_{34}\\\beta_{44} \end{bmatrix} \f$
+   * 为了方便求导,计算得到一个中间结果先:
+   * \f$ \begin{split}
+   *  \mathbf{\bar{L}}&=\mathbf{L}\mathbf{\bar{\beta}}\\
+   *  &=
+   *  \begin{bmatrix}
+   *  L_{11}\beta_{11}+L_{12}\beta_{12}+L_{13}\beta_{22}+\cdots+L_{1A}\beta_{44}\\
+   *  L_{21}\beta_{11}+L_{22}\beta_{22}+L_{13}\beta_{22}+\cdots+L_{2A}\beta_{44}\\
+   *  \cdots\\
+   *  L_{61}\beta_{11}+L_{62}\beta_{22}+L_{63}\beta_{22}+\cdots+L_{6A}\beta_{44}\\
+   *  \end{bmatrix}
+   *  &=
+   *  \begin{bmatrix}
+   *  \mathbf{L_1}\\\mathbf{L_2}\\\cdots\\\mathbf{L_3}
+   *  \end{bmatrix}
+   *  \end{split} \f$
+   *  然后原来的目标函数矩阵表示变成为了:
+   *  \f$  f(\mathbf{\beta})=\mathbf{\bar{L}}-\mathbf{\rho} \f$
+   *  接下来准备求目标函数的雅克比.注意到只有矩阵 \f$ \mathbf{\bar{L}} \f$ 和优化变量 \f$ \mathbf{\beta} \f$ 有关系,因此有:
+   * \f$ \begin{split}
+   * \frac{\partial f(\mathbf{\beta})}{\partial \mathbf{\beta}}&=\frac{\partial \mathbf{L}}{\partial \mathbf{\beta}}\\
+   * &=
+   * \begin{bmatrix}
+   * \frac{\partial \mathbf{L}}{\partial \beta_1}&\frac{\partial \mathbf{L}}{\partial \beta_2}&
+   * \frac{\partial \mathbf{L}}{\partial \beta_3}&\frac{\partial \mathbf{L}}{\partial \beta_4}
+   * \end{bmatrix} \\
+   * &=
+   * \begin{bmatrix}
+   * \frac{\partial \mathbf{L}_1}{\partial \beta_1}&\frac{\partial \mathbf{L}_1}{\partial \beta_2}&
+   * \frac{\partial \mathbf{L}_1}{\partial \beta_3}&\frac{\partial \mathbf{L}_1}{\partial \beta_4}\\
+   * \frac{\partial \mathbf{L}_2}{\partial \beta_1}&\frac{\partial \mathbf{L}_2}{\partial \beta_2}&
+   * \frac{\partial \mathbf{L}_2}{\partial \beta_3}&\frac{\partial \mathbf{L}_2}{\partial \beta_4}\\
+   * \cdots&\cdots&\cdots&\cdots\\
+   * \frac{\partial \mathbf{L}_6}{\partial \beta_1}&\frac{\partial \mathbf{L}_6}{\partial \beta_2}&
+   * \frac{\partial \mathbf{L}_6}{\partial \beta_3}&\frac{\partial \mathbf{L}_6}{\partial \beta_4}
+   * \end{bmatrix}
+   * \end{split} \f$
+   * 从优化目标函数的概念触发,其中的每一行的约束均由一对点来提供,因此不同行之间其实并无关系,可以相互独立地计算,因此对于其中的每一行:(以第一行为例)
+   * \f$ \mathbf{L}_1=
+   * \beta_{11}L_{11}+\beta_{12}L_{12}+\beta_{22}L_{13}+\beta_{13}L_{14}+\beta_{23}L_{15}+
+   * \beta_{33}L_{16}+\beta_{14}L_{17}+\beta_{24}L_{18}+\beta_{34}L_{19}+\beta_{44}L_{1A} \f$
+   * 分别对beat进行求导:(注意为了方便这里把L的下标从1开始变成了从0开始)
+   * \f$ \frac{\partial \mathbf{L}_1}{\partial \beta_1}=2\beta_1L_{10}+\beta_2L_{11}+\beta_3L_{13}+\beta_4L_{16} \\
+   * \frac{\partial \mathbf{L}_1}{\partial \beta_2}=\beta_1L_{11}+2\beta_2L_{12}+\beta_3L_{14}+\beta_4L_{17} \\
+   * \frac{\partial \mathbf{L}_1}{\partial \beta_3}=\beta_1L_{13}+\beta_2L_{14}+2\beta_3L_{15}+\beta_4L_{18} \\
+   * \frac{\partial \mathbf{L}_1}{\partial \beta_4}=\beta_1L_{16}+\beta_2L_{17}+\beta_3L_{18}+2\beta_4L_{19}  \f$
+   * 就是下面计算每一行的雅克比的式子.
+   * 
+   * 另外对于当前行的非齐次项, 在 gauss_newton 中简化后得到的结果为 -f(x), 也就是:
+   * \f$ ||\mathbf{c}^w_i-\mathbf{c}^w_j ||^2 - ||\mathbf{c}^c_i-\mathbf{c}^c_j ||^2 \f$
+   * 每一行都会有一个特定的i和j.上式中的前者可以直接由 \f$ \mathbf{\rho} \f$ 的对应行给定,而后者则要根据论文公式(12)给出了:
+   * \f$ ||\mathbf{c}^c_i-\mathbf{c}^c_j ||^2 = \mathbf{L}_k\mathbf{\bar{\beta}} \f$ 
+   * 这个也就是非齐次项部分的计算过程
+   */
+
+
+
+  // 一共有六个方程组, 对每一行(也就是每一个方程展开遍历);
+  // 从优化目标函数的概念触发,其中的每一行的约束均由一对点来提供,因此不同行之间其实并无关系,可以相互独立地计算
   for(int i = 0; i < 6; i++) {
     // 获得矩阵L中的行指针
     const double * rowL = l_6x10 + i * 10;
-
     double * rowA = A->data.db + i * 4;
 
-    // HERE 这里的雅克比是怎么计算的????
+    // step 1: 计算当前行的雅克比
     rowA[0] = 2 * rowL[0] * betas[0] +     rowL[1] * betas[1] +     rowL[3] * betas[2] +     rowL[6] * betas[3];
     rowA[1] =     rowL[1] * betas[0] + 2 * rowL[2] * betas[1] +     rowL[4] * betas[2] +     rowL[7] * betas[3];
     rowA[2] =     rowL[3] * betas[0] +     rowL[4] * betas[1] + 2 * rowL[5] * betas[2] +     rowL[8] * betas[3];
     rowA[3] =     rowL[6] * betas[0] +     rowL[7] * betas[1] +     rowL[8] * betas[2] + 2 * rowL[9] * betas[3];
 
+    // step 2: 计算当前行的非齐次项
     cvmSet(b, i, 0, rho[i] -
 	   (
 	    rowL[0] * betas[0] * betas[0] +     //b00 b11
@@ -1077,96 +1142,140 @@ void PnPsolver::gauss_newton(const CvMat * L_6x10, const CvMat * Rho,
   // 只进行5次迭代
   const int iterations_number = 5;
 
-  // 参考论文式(13)中的非齐次方程组的形式
+  /** 这里是求解增量方程组Ax=B,其中的x就是增量. 根据论文中的式15,可以得到优化的目标函数为:
+   *  \f$ f(\mathbf{\beta})=\sum_{(i,j \  s.t. \  i<j)} 
+   *      \left( ||\mathbf{c}^c_i-\mathbf{c}^c_j ||^2 - ||\mathbf{c}^w_i-\mathbf{c}^w_j ||^2 \right) \f$
+   * 而根据高斯牛顿法,增量方程为:
+   * \f$ \mathbf{H}\mathbf{\Delta x}=\mathbf{g} \f$ 
+   * 也就是:(参考视觉SLAM十四讲第一版P112式6.21 6.22)
+   * \f$ \mathbf{J}^T\mathbf{J}\mathbf{\Delta x}=-\mathbf{J}^T f(x) \f$
+   * 不过这里在计算的时候将等式左右两边的雅克比 \f$ \mathbf{J}^T \f$ 都给约去了,得到精简后的增量方程:
+   * \f$  \mathbf{J}\mathbf{\Delta x}=-f(x) \f$
+   * 然后分别对应为程序代码中的系数矩阵A和非齐次项B.
+   */
   double a[6*4], b[6], x[4];
   CvMat A = cvMat(6, 4, CV_64F, a);   // 系数矩阵
   CvMat B = cvMat(6, 1, CV_64F, b);   // 非齐次项
-  CvMat X = cvMat(4, 1, CV_64F, x);   // 待求解的量
+  CvMat X = cvMat(4, 1, CV_64F, x);   // 增量
 
   // 对于每次迭代过程
   for(int k = 0; k < iterations_number; k++) {
-    // HERE
+    // 计算增量方程的系数矩阵和非齐次项
     compute_A_and_b_gauss_newton(L_6x10->data.db, Rho->data.db,
 				 betas, &A, &B);
+    // 使用QR分解来求解增量方程,解得当前次迭代的增量X  //HERE
     qr_solve(&A, &B, &X);
 
+    // 应用增量,对估计值进行更新;估计值是beta1~beta4组成的向量
     for(int i = 0; i < 4; i++)
       betas[i] += x[i];
   }
 }
 
+// 使用QR分解来求解增量方程;源代码格式有点乱,已经重新进行了格式化
 void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
 {
-  static int max_nr = 0;
-  static double * A1, * A2;
+  static int max_nr = 0;        //? 静态的,存储运行这个程序历史上的最大的系数矩阵行数?
+  static double * A1, * A2;     //? unkown
 
-  const int nr = A->rows;
-  const int nc = A->cols;
+  const int nr = A->rows;       // 系数矩阵A的行数
+  const int nc = A->cols;       // 系数矩阵A的列数
 
-  if (max_nr != 0 && max_nr < nr) {
+  // 判断是否需要重新分配A1 A2的内存区域
+  if (max_nr != 0 && max_nr < nr) 
+  {
+    // 如果 max_nr != 0 说明之前已经创建了一个 last_max_nr < nr 的数组,不够我们现在使用了,需要重新分配内存;但是在重新分配之前我们需要先删除之前创建的内容
     delete [] A1;
     delete [] A2;
   }
-  if (max_nr < nr) {
+  if (max_nr < nr) 
+  {
     max_nr = nr;
     A1 = new double[nr];
     A2 = new double[nr];
   }
 
-  double * pA = A->data.db, * ppAkk = pA;
-  for(int k = 0; k < nc; k++) {
-    double * ppAik = ppAkk, eta = fabs(*ppAik);
-    for(int i = k + 1; i < nr; i++) {
+  double * pA = A->data.db,     // 指向系数矩阵A的数据区
+         * ppAkk = pA;          // 一直都会指向对角线上的元素
+  // 对系数矩阵的列展开遍历
+  for(int k = 0; k < nc; k++) 
+  {
+    double * ppAik = ppAkk,           // 只是辅助下面的for循环中,遍历对角线元素下的当前列的所有元素
+             eta = fabs(*ppAik);      // 存储当前列对角线元素下面的所有元素绝对值的最大值
+
+    // 遍历当前对角线约束下,当前列的所有元素,并且找到它们中的最大的绝对值
+    for(int i = k + 1; i < nr; i++) 
+    {
       double elt = fabs(*ppAik);
       if (eta < elt) eta = elt;
-      ppAik += nc;
+        ppAik += nc;                  // 指向下一列
     }
 
-    if (eta == 0) {
+    //? 判断靠谱不? 由于系数矩阵是雅克比,并且代价函数中的L元素都是二次项的形式,所以原则上都应该是大于0的
+    if (eta == 0) 
+    {
       A1[k] = A2[k] = 0.0;
       cerr << "God damnit, A is singular, this shouldn't happen." << endl;
       return;
-    } else {
-      double * ppAik = ppAkk, sum = 0.0, inv_eta = 1. / eta;
-      for(int i = k; i < nr; i++) {
-	*ppAik *= inv_eta;
-	sum += *ppAik * *ppAik;
-	ppAik += nc;
+    } 
+    else
+    {
+
+      // 开始正儿八经地进行QR分解了
+      // HERE 感觉这里面使用的应该是数值分析中的计算方法,和矩阵论中的定义的算法还是不一样的
+      // 注意在这里面,ppAik被重新定义了,在这个结构中以这里定义的这个为准
+      double * ppAik = ppAkk, 
+              sum = 0.0,
+              inv_eta = 1. / eta;  // 卧槽还能直接+.表示浮点数啊,长见识了
+      for(int i = k; i < nr; i++) 
+      {
+        *ppAik *= inv_eta;
+        sum += *ppAik * *ppAik;
+        ppAik += nc;
       }
+
       double sigma = sqrt(sum);
       if (*ppAkk < 0)
-	sigma = -sigma;
+        sigma = -sigma;
       *ppAkk += sigma;
       A1[k] = sigma * *ppAkk;
       A2[k] = -eta * sigma;
-      for(int j = k + 1; j < nc; j++) {
-	double * ppAik = ppAkk, sum = 0;
-	for(int i = k; i < nr; i++) {
-	  sum += *ppAik * ppAik[j - k];
-	  ppAik += nc;
-	}
-	double tau = sum / A1[k];
-	ppAik = ppAkk;
-	for(int i = k; i < nr; i++) {
-	  ppAik[j - k] -= tau * *ppAik;
-	  ppAik += nc;
-	}
+      for(int j = k + 1; j < nc; j++) 
+      {
+        // 又重新定义了
+        double * ppAik = ppAkk, sum = 0;
+        for(int i = k; i < nr; i++) 
+        {
+          sum += *ppAik * ppAik[j - k];
+          ppAik += nc;
+        }
+        double tau = sum / A1[k];
+        ppAik = ppAkk;
+        for(int i = k; i < nr; i++) 
+        {
+          ppAik[j - k] -= tau * *ppAik;
+          ppAik += nc;
+        }
       }
     }
+    // 移动向下一个对角线元素
     ppAkk += nc + 1;
   }
 
   // b <- Qt b
   double * ppAjj = pA, * pb = b->data.db;
-  for(int j = 0; j < nc; j++) {
+  for(int j = 0; j < nc; j++) 
+  {
     double * ppAij = ppAjj, tau = 0;
-    for(int i = j; i < nr; i++)	{
+    for(int i = j; i < nr; i++)	
+    {
       tau += *ppAij * pb[i];
       ppAij += nc;
     }
     tau /= A1[j];
     ppAij = ppAjj;
-    for(int i = j; i < nr; i++) {
+    for(int i = j; i < nr; i++) 
+    {
       pb[i] -= tau * *ppAij;
       ppAij += nc;
     }
@@ -1176,10 +1285,12 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
   // X = R-1 b
   double * pX = X->data.db;
   pX[nc - 1] = pb[nc - 1] / A2[nc - 1];
-  for(int i = nc - 2; i >= 0; i--) {
+  for(int i = nc - 2; i >= 0; i--) 
+  {
     double * ppAij = pA + i * nc + (i + 1), sum = 0;
 
-    for(int j = i + 1; j < nc; j++) {
+    for(int j = i + 1; j < nc; j++) 
+    {
       sum += *ppAij * pX[j];
       ppAij++;
     }

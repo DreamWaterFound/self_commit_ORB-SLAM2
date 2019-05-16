@@ -1,4 +1,4 @@
-/**
+       /**
  * @file PnPsolver.h
  * @author guoqing (1337841346@qq.com)
  * @brief EPnP 相机位姿求解器，貌似这里ORB-SLAM2也是使用了开源的代码
@@ -172,6 +172,12 @@ public:
   void find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho, double * betas);
+  /**
+   * @brief 使用QR分解来求解增量方程 
+   * @param[in]  A   洗漱矩阵
+   * @param[in]  b   非齐次项
+   * @param[out] X   增量
+   */
   void qr_solve(CvMat * A, CvMat * b, CvMat * X);
 
   /**
@@ -208,12 +214,12 @@ public:
    */
   void gauss_newton(const CvMat * L_6x10, const CvMat * Rho, double current_betas[4]);
   /**
-   * @brief 对计算出来的结果进行高斯牛顿法优化,求精. 过程参考EPnP论文中式(15) //? HACK
-   * @param[in] l_6x10 L矩阵
-   * @param[in] rho    Rho矩向量
-   * @param[in] cb     
-   * @param[in] A 
-   * @param[in] b 
+   * @brief 计算高斯牛顿法优化时,增量方程中的系数矩阵和非齐次项
+   * @param[in]  l_6x10 L矩阵
+   * @param[in]  rho    Rho矩向量
+   * @param[in]  cb     当前次迭代得到的beta1~beta4
+   * @param[out] A      计算得到的增量方程中的系数矩阵
+   * @param[out] b      计算得到的增量方程中的非齐次项
    */
   void compute_A_and_b_gauss_newton(const double * l_6x10, const double * rho,
 				    double cb[4], CvMat * A, CvMat * b);
