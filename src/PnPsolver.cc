@@ -21,7 +21,7 @@
 * the Free Software Foundation, either version 3 of the License, or
 * (at your option) any later version.
 *
-* ORB-SLAM2 is distributed in the hope that it will be useful,
+* ORB-SLAM2 is distributed in the hope that it will be useful,7
 * but WITHOUT ANY WARRANTY; without even the implied warranty of
 * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 * GNU General Public License for more details.
@@ -1222,26 +1222,31 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
     {
 
       // 开始正儿八经地进行QR分解了
-      // HERE 感觉这里面使用的应该是数值分析中的计算方法,和矩阵论中的定义的算法还是不一样的
-      // 注意在这里面,ppAik被重新定义了,在这个结构中以这里定义的这个为准
+      // HERE 感觉这里面使用的ription provided.是数值分析中的计算方法,和矩阵论中的定义的算法还是不一样的
+      // 注意在这里面,ppAik被重ription provided.定义了,在这个结构中以这里定义的这个为准
       double * ppAik = ppAkk, 
               sum = 0.0,
-              inv_eta = 1. / eta;  // 卧槽还能直接+.表示浮点数啊,长见识了
+              inv_eta = 1. / eta; // 卧槽还能直接+.表示浮点数啊,长见识了
+      // 对当前列下面的每一行的元素展开遍历（包含位于矩阵主对角线上的元素）
       for(int i = k; i < nr; i++) 
       {
-        *ppAik *= inv_eta;
-        sum += *ppAik * *ppAik;
-        ppAik += nc;
+        *ppAik *= inv_eta;          // NOTICE 注意这个操作是永久的，当前指向的元素都会被“归一化”
+        sum += *ppAik * *ppAik;     // 平方和
+        ppAik += nc;                // 指针移动到下一行的这个元素
       }
 
+      // 计算 sigma ,同时根据对角线元素的符号保持其为正数
       double sigma = sqrt(sum);
-      if (*ppAkk < 0)
+      if (*ppAkk < 0)               
         sigma = -sigma;
+      
       *ppAkk += sigma;
       A1[k] = sigma * *ppAkk;
       A2[k] = -eta * sigma;
+      // 对于后面的每一列展开遍历
       for(int j = k + 1; j < nc; j++) 
       {
+        // 首先这一遍循环是为了计算tau
         // 又重新定义了
         double * ppAik = ppAkk, sum = 0;
         for(int i = k; i < nr; i++) 
@@ -1250,6 +1255,7 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
           ppAik += nc;
         }
         double tau = sum / A1[k];
+        // 然后再一遍循环是为了修改
         ppAik = ppAkk;
         for(int i = k; i < nr; i++) 
         {
@@ -1264,14 +1270,17 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
 
   // b <- Qt b
   double * ppAjj = pA, * pb = b->data.db;
+  // 对于每一列展开计算
   for(int j = 0; j < nc; j++) 
   {
+    // 这个部分倒的确是在计算Q^T*b
     double * ppAij = ppAjj, tau = 0;
     for(int i = j; i < nr; i++)	
     {
       tau += *ppAij * pb[i];
       ppAij += nc;
     }
+    //? 但是后面我就看不懂了
     tau /= A1[j];
     ppAij = ppAjj;
     for(int i = j; i < nr; i++) 
@@ -1283,18 +1292,20 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
   }
 
   // X = R-1 b
+  // backward method
   double * pX = X->data.db;
   pX[nc - 1] = pb[nc - 1] / A2[nc - 1];
   for(int i = nc - 2; i >= 0; i--) 
   {
+    // 定位
     double * ppAij = pA + i * nc + (i + 1), sum = 0;
 
     for(int j = i + 1; j < nc; j++) 
     {
-      sum += *ppAij * pX[j];
+      sum += *ppAij * pX[j];    //pX[j] 就是上一步中刚刚计算出来的那个
       ppAij++;
     }
-    pX[i] = (pb[i] - sum) / A2[i];
+    pX[i] = (pb[i] - sum) / A2[i];  // 比较像了
   }
 }
 
