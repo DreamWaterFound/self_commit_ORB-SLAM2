@@ -133,7 +133,7 @@ public:
    * @brief 使用EPnP算法计算相机的位姿.其中匹配点的信息由类的成员函数给定 
    * @param[out] R    旋转
    * @param[out] T    平移
-   * @return double   //?
+   * @return double   使用这对旋转和平移的时候, 匹配点对的平均重投影误差
    */
   double compute_pose(double R[3][3], double T[3]);
 
@@ -141,7 +141,18 @@ public:
               const double Rtrue[3][3], const double ttrue[3],
               const double Rest[3][3],  const double test[3]);
 
+  /**
+   * @brief 输出计算得到的位姿.这个函数是EPnP源码中自带的,用于调试,所以在ORB中应当算是一个被放弃了的函数(因为我们并不需要输出啊)
+   * @param[in] R 旋转
+   * @param[in] t 平移 
+   */
   void print_pose(const double R[3][3], const double t[3]);
+/**
+ * @brief 计算在给定位姿的时候的3D点投影误差
+ * @param[in] R      给定旋转
+ * @param[in] t      给定平移
+ * @return double    重投影误差,是平均到每一对匹配点上的误差
+ */
   double reprojection_error(const double R[3][3], const double t[3]);
 
   /** @brief 从给定的匹配点中计算出四个控制点(控制点的概念参考EPnP原文) */
@@ -157,9 +168,15 @@ public:
    * @param[in] v                2D点坐标 
    */
   void fill_M(CvMat * M, const int row, const double * alphas, const double u, const double v);
+  /**
+   * @brief 通过给出的beta和vi,计算控制点在相机坐标系下的坐标
+   * @param[in] betas       beta
+   * @param[in] ut          其实是vi
+   */
   void compute_ccs(const double * betas, const double * ut);
+  /** @brief 计算用四个控制点作为单位向量表示下的世界坐标系下3D点的坐标 */
   void compute_pcs(void);
-
+  /** @brief 保持所有点在相机坐标系下的深度为正,调整符号  */
   void solve_for_sign(void);
 
   /**
@@ -170,6 +187,12 @@ public:
    * @param[out] betas   计算得到的beta
    */
   void find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho, double * betas);
+  /**
+   * @brief 计算N=2的情况
+   * @param[in]  L_6x10     L
+   * @param[in]  Rho        \rho
+   * @param[out] betas      betas
+   */
   void find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   void find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   /**
@@ -224,11 +247,30 @@ public:
   void compute_A_and_b_gauss_newton(const double * l_6x10, const double * rho,
 				    double cb[4], CvMat * A, CvMat * b);
 
+  /**
+   * @brief 根据已经得到的控制点在当前相机坐标系下的坐标来恢复出相机的位姿
+   * @param[in]  ut         vi
+   * @param[in]  betas      betas
+   * @param[out] R          计算得到的相机旋转R
+   * @param[out] t          计算得到的相机位置t
+   * @return double         使用这个位姿,所得到的重投影误差
+   */
   double compute_R_and_t(const double * ut, const double * betas,
 			 double R[3][3], double t[3]);
 
+  /**
+   * @brief 根据调整后的控制点和3D点在相机坐标系下的坐标来计算相机的位姿
+   * @param[out] R   旋转
+   * @param[out] t   平移
+   */
   void estimate_R_and_t(double R[3][3], double t[3]);
-
+  /**
+   * @brief 复制计算得到的位姿到另外的一组变量中
+   * @param[in]  R_dst 
+   * @param[in]  t_dst 
+   * @param[out] R_src 
+   * @param[out] t_src 
+   */
   void copy_R_and_t(const double R_dst[3][3], const double t_dst[3],
 		    double R_src[3][3], double t_src[3]);
 
@@ -248,7 +290,7 @@ public:
   int number_of_correspondences;                                  ///< 当前次迭代中,已经采样的匹配点的个数;也用来指导这个"压入到数组"的过程中操作
 
   double cws[4][3],                                               ///< 存储控制点在世界坐标系下的坐标，第一维表示是哪个控制点，第二维表示是哪个坐标(x,y,z)
-         ccs[4][3];                                    
+         ccs[4][3];                                               ///< 存储控制点在相机坐标系下的坐标, 含义同上
   double cws_determinant;
 
   vector<MapPoint*> mvpMapPointMatches;                           ///< 存储构造的时候给出的地图点  //? 已经经过匹配了的吗?

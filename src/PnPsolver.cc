@@ -359,9 +359,10 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
     return cv::Mat();
 }
 
-// FIXME: 求精?
+// 使用新的内点来继续对位姿进行精求解
 bool PnPsolver::Refine()
 {
+    // 先备份一下历史上最好的内点数据
     vector<int> vIndices;
     vIndices.reserve(mvbBestInliers.size());
 
@@ -373,10 +374,12 @@ bool PnPsolver::Refine()
         }
     }
 
+    // 然后……重新根据这些点构造用于RANSAC迭代的匹配关系
+    // 分配空间
     set_maximum_number_of_correspondences(vIndices.size());
-
+    // 复位计数变量，为添加新的匹配关系做准备
     reset_correspondences();
-
+    // 添加匹配关系
     for(size_t i=0; i<vIndices.size(); i++)
     {
         int idx = vIndices[i];
@@ -389,12 +392,14 @@ bool PnPsolver::Refine()
     // Check inliers
     CheckInliers();
 
-    // 通过CheckInliers函数得到那些inlier点用来提纯
+    // 通过CheckInliers函数得到那些inlier点用来提纯 -- 其实应该说是通过提纯的过程，哪些点被再一次标注为了内点
     mnRefinedInliers =mnInliersi;
     mvbRefinedInliers = mvbInliersi;
 
+    // 如果达到了要求
     if(mnInliersi>mRansacMinInliers)
     {
+        // 各种参数各种设置
         cv::Mat Rcw(3,3,CV_64F,mRi);
         cv::Mat tcw(3,1,CV_64F,mti);
         Rcw.convertTo(Rcw,CV_32F);
@@ -409,13 +414,14 @@ bool PnPsolver::Refine()
 }
 
 // 通过之前求解的(R t)检查哪些3D-2D点对属于inliers
-// FIXME: 
 void PnPsolver::CheckInliers()
 {
     mnInliersi=0;
 
+    // 遍历当前帧中所有的匹配点
     for(int i=0; i<N; i++)
     {
+        // 取出对应的3D点和2D点
         cv::Point3f P3Dw = mvP3Dw[i];
         cv::Point2f P2D = mvP2D[i];
 
@@ -434,6 +440,7 @@ void PnPsolver::CheckInliers()
 
         float error2 = distX*distX+distY*distY;
 
+        // 判定
         if(error2<mvMaxError[i])
         {
             mvbInliersi[i]=true;
@@ -633,32 +640,42 @@ void PnPsolver::fill_M(CvMat * M,
 }
 
 // 每一个控制点在相机坐标系下都表示为特征向量乘以beta的形式，EPnP论文的公式16
+// 这里是是计算控制点在相机坐标系下的坐标
 void PnPsolver::compute_ccs(const double * betas, const double * ut)
 {
+  // step 1 赋值初始值为0
   for(int i = 0; i < 4; i++)
     ccs[i][0] = ccs[i][1] = ccs[i][2] = 0.0f;
 
+  // step 2 
   for(int i = 0; i < 4; i++) {
+    // 注意这里传过来的向量ut中,最后的部分才是v,依次是  x  x  x  ... x v4 v3 v2 v1
+    // 这里就是在最后面一次取出 v1 ~ v4
     const double * v = ut + 12 * (11 - i);
-    for(int j = 0; j < 4; j++)
-      for(int k = 0; k < 3; k++)
+
+    for(int j = 0; j < 4; j++)              // j表示当前计算的是第几个控制点
+      for(int k = 0; k < 3; k++)            // k表示当前计算的是控制点的哪个坐标
     ccs[j][k] += betas[i] * v[3 * j + k];
   }
 }
 
-// 用四个控制点作为单位向量表示下的世界坐标系下3D点的坐标
+// 计算用四个控制点作为单位向量表示下的世界坐标系下3D点的坐标
+// 过程可以参考 https://blog.csdn.net/jessecw79/article/details/82945918
 void PnPsolver::compute_pcs(void)
 {
+  // 遍历所有的空间点
   for(int i = 0; i < number_of_correspondences; i++) {
+    // 定位
     double * a = alphas + 4 * i;
-    double * pc = pcs + 3 * i;
+    double * pc = pcs + 3 * i;   
 
+    // 计算
     for(int j = 0; j < 3; j++)
       pc[j] = a[0] * ccs[0][j] + a[1] * ccs[1][j] + a[2] * ccs[2][j] + a[3] * ccs[3][j];
   }
 }
 
-// FIXME: 根据类成员变量中给出的匹配点,计算相机位姿
+// 根据类成员变量中给出的匹配点,计算相机位姿
 double PnPsolver::compute_pose(double R[3][3], double t[3])
 {
   // step 1：获得EPnP算法中的四个控制点
@@ -679,11 +696,14 @@ double PnPsolver::compute_pose(double R[3][3], double t[3])
   CvMat Ut  = cvMat(12, 12, CV_64F, ut);    // 左奇异向量
 
   // step 4：求解Mx = 0
+
+  // step 4.1 先计算其中的特征向量vi
   // SVD分解M'M
   cvMulTransposed(M, &MtM, 1);
   cvSVD(&MtM, &D, &Ut, 0, CV_SVD_MODIFY_A | CV_SVD_U_T);//得到向量ut -- 其实就是EPnP论文式(8)中的vi
   cvReleaseMat(&M);
 
+  // step 4.2 计算分情况讨论的时候需要用到的矩阵L和\rho
   // EPnP论文中式13中的L和\rho
   double l_6x10[6 * 10], rho[6];
   CvMat L_6x10 = cvMat(6, 10, CV_64F, l_6x10);
@@ -693,45 +713,55 @@ double PnPsolver::compute_pose(double R[3][3], double t[3])
   compute_L_6x10(ut, l_6x10);
   compute_rho(rho);
 
+
+  // step 4.3 分情况计算N=2,3,4时能够求解得到的相机位姿R,t并且得到平均重投影误差
   double Betas[4][4],         // 本质上就四个beta1~4,但是这里有四种情况(第一维度表示)
          rep_errors[4];       //? 迭代误差? 重投影误差?
   double Rs[4][3][3],         //每一种情况迭代优化后得到的旋转矩阵
          ts[4][3];            //每一种情况迭代优化后得到的平移向量
 
   // 不管什么情况，都假设论文中N=4，并求解部分betas（如果全求解出来会有冲突）
-  // 通过优化得到剩下的betas
+  // 通过优化得到剩下的 betas
   // 最后计算R t
 
-  // EPnP论文公式10 15 //? ?
-  //? Betas[0]呢? 还是说这里计算的其实是N=2时的情况(程序中下标从0开始)?
+  // EPnP论文公式10 15 
+  // N=4的情况
   find_betas_approx_1(&L_6x10, &Rho, Betas[1]);
   gauss_newton(&L_6x10, &Rho, Betas[1]);
-  rep_errors[1] = compute_R_and_t(ut, Betas[1], Rs[1], ts[1]);
+  rep_errors[1] = compute_R_and_t(ut, Betas[1], Rs[1], ts[1]);   // 注意是每对匹配点的平均的重投影误差
 
-  // EPnP论文公式11 15
+  // EPnP论文公式11 15 
+  // 对应N=2的情况
   find_betas_approx_2(&L_6x10, &Rho, Betas[2]);
   gauss_newton(&L_6x10, &Rho, Betas[2]);
   rep_errors[2] = compute_R_and_t(ut, Betas[2], Rs[2], ts[2]);
 
+  // 对应为N=3的情况
   find_betas_approx_3(&L_6x10, &Rho, Betas[3]);
   gauss_newton(&L_6x10, &Rho, Betas[3]);
   rep_errors[3] = compute_R_and_t(ut, Betas[3], Rs[3], ts[3]);
 
-  int N = 1;
+  // step 5 看看哪种情况得到的效果最好,然后就选哪个
+  int N = 1;    // trick , 这样可以减少一种情况的计算
   if (rep_errors[2] < rep_errors[1]) N = 2;
   if (rep_errors[3] < rep_errors[N]) N = 3;
 
+  // step 6 收尾,将计算结果保存到返回计算结果用的变量中
   copy_R_and_t(Rs[N], ts[N], R, t);
 
+  // step 7 并且返回平均匹配点对的重投影误差,作为对相机位姿估计的评价
   return rep_errors[N];
 }
 
+// 复制计算得到的位姿到另外的一组变量中
 void PnPsolver::copy_R_and_t(const double R_src[3][3], const double t_src[3],
 			double R_dst[3][3], double t_dst[3])
 {
   for(int i = 0; i < 3; i++) {
     for(int j = 0; j < 3; j++)
       R_dst[i][j] = R_src[i][j];
+
+    // trick 放在这里用来尽可能减少计算的复杂度  
     t_dst[i] = t_src[i];
   }
 }
@@ -751,33 +781,43 @@ double PnPsolver::dot(const double * v1, const double * v2)
   return v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2];
 }
 
+// 计算在给定相机位姿的时候的3D点投影误差
 double PnPsolver::reprojection_error(const double R[3][3], const double t[3])
 {
+  // 统计其实并不是平方
   double sum2 = 0.0;
 
+  // 遍历每个3D点
   for(int i = 0; i < number_of_correspondences; i++) {
+    // 指针定位
     double * pw = pws + 3 * i;
+    // 计算这个3D点在相机坐标系下的坐标,逆深度表示
     double Xc = dot(R[0], pw) + t[0];
     double Yc = dot(R[1], pw) + t[1];
     double inv_Zc = 1.0 / (dot(R[2], pw) + t[2]);
+    // 计算投影点
     double ue = uc + fu * Xc * inv_Zc;
     double ve = vc + fv * Yc * inv_Zc;
+    // 计算投影点与匹配2D点的欧氏距离的平方
     double u = us[2 * i], v = us[2 * i + 1];
-
+    // 得到其欧式距离并累加
     sum2 += sqrt( (u - ue) * (u - ue) + (v - ve) * (v - ve) );
   }
-
+  // 返回平均误差
   return sum2 / number_of_correspondences;
 }
 
 // 根据世界坐标系下的四个控制点与机体坐标下对应的四个控制点（和世界坐标系下四个控制点相同尺度），求取R t
 void PnPsolver::estimate_R_and_t(double R[3][3], double t[3])
 {
-  double pc0[3], pw0[3];
-
+  // step 1 计算3D点的质心
+  double pc0[3],                                              //3D点世界坐标系下坐标的质心
+         pw0[3];                                              //3D点相机坐标系下坐标的质心
+  // 初始化这两个质心
   pc0[0] = pc0[1] = pc0[2] = 0.0;
   pw0[0] = pw0[1] = pw0[2] = 0.0;
 
+  // 然后累加求质心
   for(int i = 0; i < number_of_correspondences; i++) {
     const double * pc = pcs + 3 * i;
     const double * pw = pws + 3 * i;
@@ -792,17 +832,22 @@ void PnPsolver::estimate_R_and_t(double R[3][3], double t[3])
     pw0[j] /= number_of_correspondences;
   }
 
+  // 准备构造矩阵A,B以及B^T*A的SVD分解的值
   double abt[3 * 3], abt_d[3], abt_u[3 * 3], abt_v[3 * 3];
-  CvMat ABt   = cvMat(3, 3, CV_64F, abt);
-  CvMat ABt_D = cvMat(3, 1, CV_64F, abt_d);
-  CvMat ABt_U = cvMat(3, 3, CV_64F, abt_u);
-  CvMat ABt_V = cvMat(3, 3, CV_64F, abt_v);
+  CvMat ABt   = cvMat(3, 3, CV_64F, abt);       // H=B^T*A
+  CvMat ABt_D = cvMat(3, 1, CV_64F, abt_d);     // 奇异值分解得到的特征值
+  CvMat ABt_U = cvMat(3, 3, CV_64F, abt_u);     // 奇异值分解得到的左特征矩阵
+  CvMat ABt_V = cvMat(3, 3, CV_64F, abt_v);     // 奇异值分解得到的右特征矩阵
 
+  // step 2 构造矩阵H=B^T*A,不过这里是隐含的构造
   cvSetZero(&ABt);
+  // 遍历每一个3D点
   for(int i = 0; i < number_of_correspondences; i++) {
+    // 定位
     double * pc = pcs + 3 * i;
     double * pw = pws + 3 * i;
 
+    // 计算H=B^T*A,其中的两个矩阵构造和相乘的操作被融合在一起了
     for(int j = 0; j < 3; j++) {
       abt[3 * j    ] += (pc[j] - pc0[j]) * (pw[0] - pw0[0]);
       abt[3 * j + 1] += (pc[j] - pc0[j]) * (pw[1] - pw0[1]);
@@ -810,27 +855,32 @@ void PnPsolver::estimate_R_and_t(double R[3][3], double t[3])
     }
   }
 
+  // step 3 对得到的H矩阵进行奇异值分解
   cvSVD(&ABt, &ABt_D, &ABt_U, &ABt_V, CV_SVD_MODIFY_A);
 
+  // step 4 R=U*V^T, 并且进行合法性检查
   for(int i = 0; i < 3; i++)
     for(int j = 0; j < 3; j++)
       R[i][j] = dot(abt_u + 3 * i, abt_v + 3 * j);
-
+  
+  // 注意在得到了R以后,需要保证 det(R)=1>0
   const double det =
     R[0][0] * R[1][1] * R[2][2] + R[0][1] * R[1][2] * R[2][0] + R[0][2] * R[1][0] * R[2][1] -
     R[0][2] * R[1][1] * R[2][0] - R[0][1] * R[1][0] * R[2][2] - R[0][0] * R[1][2] * R[2][1];
-
+  // 如果小于0那么就要这样做
   if (det < 0) {
     R[2][0] = -R[2][0];
     R[2][1] = -R[2][1];
     R[2][2] = -R[2][2];
   }
 
+  // step 5 t就这么算
   t[0] = pc0[0] - dot(R[0], pw0);
   t[1] = pc0[1] - dot(R[1], pw0);
   t[2] = pc0[2] - dot(R[2], pw0);
 }
 
+// TODO  输出位姿,不过目测这个函数应该是在ORB中被废弃了(因为根本用不到啊)
 void PnPsolver::print_pose(const double R[3][3], const double t[3])
 {
   cout << R[0][0] << " " << R[0][1] << " " << R[0][2] << " " << t[0] << endl;
@@ -838,37 +888,47 @@ void PnPsolver::print_pose(const double R[3][3], const double t[3])
   cout << R[2][0] << " " << R[2][1] << " " << R[2][2] << " " << t[2] << endl;
 }
 
+// 保持所有点在相机坐标系下的深度为正,调整符号
 void PnPsolver::solve_for_sign(void)
 {
+  // 根据第一个3D点在当前相机坐标系下的深度,调整所有的3D点的深度为正(因为正常地来讲,这些3D点都应该是在相机前面的)
+  // 如果第一个点的深度是负的话
   if (pcs[2] < 0.0) {
+    // 先调整控制点的坐标
     for(int i = 0; i < 4; i++)
       for(int j = 0; j < 3; j++)
-	ccs[i][j] = -ccs[i][j];
+	      ccs[i][j] = -ccs[i][j];
 
+    // 然后调整3D点的坐标
     for(int i = 0; i < number_of_correspondences; i++) {
-      pcs[3 * i    ] = -pcs[3 * i];
+      pcs[3 * i    ] = -pcs[3 * i]; 
       pcs[3 * i + 1] = -pcs[3 * i + 1];
       pcs[3 * i + 2] = -pcs[3 * i + 2];
     }
   }
 }
 
+// 根据已经得到的控制点在当前相机坐标系下的坐标来恢复出相机的位姿
 double PnPsolver::compute_R_and_t(const double * ut, const double * betas,
 			     double R[3][3], double t[3])
 {
+  // step 1 根据前面的计算结果来"组装"得到控制点在当前相机坐标系下的坐标
   compute_ccs(betas, ut);
+  // step 2 将世界坐标系下的3D点的坐标转换到控制点的坐标系下
   compute_pcs();
-
+  // step 3 调整点坐标的符号,来保证在相机坐标系下点的深度为正
   solve_for_sign();
 
+  // step 4 然后就是计算R和t 
   estimate_R_and_t(R, t);
 
+  // step 5 计算使用这个位姿,所得到的每对点平均的重投影误差,并且返回
   return reprojection_error(R, t);
 }
 
 // betas10        = [B11 B12 B22 B13 B23 B33 B14 B24 B34 B44]  -- L_6x10中每一行的内容
 // betas_approx_1 = [B11 B12     B13         B14            ]  -- L_6x4 中一行提取出来的内容
-// ? 为什么要计算这个 4 的情况?
+// 对应N=4的情况,其实和想象中有些不一样
 void PnPsolver::find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho,
 			       double * betas)
 {
@@ -902,7 +962,7 @@ void PnPsolver::find_betas_approx_1(const CvMat * L_6x10, const CvMat * Rho,
 
 // betas10        = [B11 B12 B22 B13 B23 B33 B14 B24 B34 B44]
 // betas_approx_2 = [B11 B12 B22                            ]
-
+// 对应N=2的情况
 void PnPsolver::find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho,
 			       double * betas)
 {
@@ -910,14 +970,17 @@ void PnPsolver::find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho,
   CvMat L_6x3  = cvMat(6, 3, CV_64F, l_6x3);
   CvMat B3     = cvMat(3, 1, CV_64F, b3);
 
+  // 提取
   for(int i = 0; i < 6; i++) {
     cvmSet(&L_6x3, i, 0, cvmGet(L_6x10, i, 0));
     cvmSet(&L_6x3, i, 1, cvmGet(L_6x10, i, 1));
     cvmSet(&L_6x3, i, 2, cvmGet(L_6x10, i, 2));
   }
 
+  // 求解方程组
   cvSolve(&L_6x3, Rho, &B3, CV_SVD);
 
+  // 从b11 b12 b22 中恢复 b1 b2
   if (b3[0] < 0) {
     betas[0] = sqrt(-b3[0]);
     betas[1] = (b3[2] < 0) ? sqrt(-b3[2]) : 0.0;
@@ -928,13 +991,14 @@ void PnPsolver::find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho,
 
   if (b3[1] < 0) betas[0] = -betas[0];
 
+  // 这俩没有使用到
   betas[2] = 0.0;
   betas[3] = 0.0;
 }
 
 // betas10        = [B11 B12 B22 B13 B23 B33 B14 B24 B34 B44]
 // betas_approx_3 = [B11 B12 B22 B13 B23                    ]
-
+// 对应N=3的情况
 void PnPsolver::find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho,
 			       double * betas)
 {
@@ -942,6 +1006,7 @@ void PnPsolver::find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho,
   CvMat L_6x5 = cvMat(6, 5, CV_64F, l_6x5);
   CvMat B5    = cvMat(5, 1, CV_64F, b5);
 
+  // 获取并构造矩阵
   for(int i = 0; i < 6; i++) {
     cvmSet(&L_6x5, i, 0, cvmGet(L_6x10, i, 0));
     cvmSet(&L_6x5, i, 1, cvmGet(L_6x10, i, 1));
@@ -950,8 +1015,10 @@ void PnPsolver::find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho,
     cvmSet(&L_6x5, i, 4, cvmGet(L_6x10, i, 4));
   }
 
+  // 求解这个方程组
   cvSolve(&L_6x5, Rho, &B5, CV_SVD);
 
+  // 从 B11 B12 B22 B13 B23 中恢复出 B1 B2 B3
   if (b5[0] < 0) {
     betas[0] = sqrt(-b5[0]);
     betas[1] = (b5[2] < 0) ? sqrt(-b5[2]) : 0.0;
@@ -961,6 +1028,8 @@ void PnPsolver::find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho,
   }
   if (b5[1] < 0) betas[0] = -betas[0];
   betas[2] = b5[3] / betas[0];
+
+  // N=3的时候没有B4
   betas[3] = 0.0;
 }
 
@@ -1163,7 +1232,7 @@ void PnPsolver::gauss_newton(const CvMat * L_6x10, const CvMat * Rho,
     // 计算增量方程的系数矩阵和非齐次项
     compute_A_and_b_gauss_newton(L_6x10->data.db, Rho->data.db,
 				 betas, &A, &B);
-    // 使用QR分解来求解增量方程,解得当前次迭代的增量X  //HERE
+    // 使用QR分解来求解增量方程,解得当前次迭代的增量X
     qr_solve(&A, &B, &X);
 
     // 应用增量,对估计值进行更新;估计值是beta1~beta4组成的向量
@@ -1172,7 +1241,8 @@ void PnPsolver::gauss_newton(const CvMat * L_6x10, const CvMat * Rho,
   }
 }
 
-// 使用QR分解来求解增量方程;源代码格式有点乱,已经重新进行了格式化
+// 使用QR分解来求解增量方程;源代码格式有kandong重新进行了格式化
+// NOTICE 但是其中具体的代码实现使用了许kandong析上的 tricks, 卡在这里看了好几天也没有能够看懂
 void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
 {
   static int max_nr = 0;        //? 静态的,存储运行这个程序历史上的最大的系数矩阵行数?
@@ -1222,7 +1292,7 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
     {
 
       // 开始正儿八经地进行QR分解了
-      // HERE 感觉这里面使用的ription provided.是数值分析中的计算方法,和矩阵论中的定义的算法还是不一样的
+      // 感觉这里面使用的ription provided.是数值分析中的计算方法,和矩阵论中的定义的算法还是不一样的
       // 注意在这里面,ppAik被重ription provided.定义了,在这个结构中以这里定义的这个为准
       double * ppAik = ppAkk, 
               sum = 0.0,
