@@ -229,6 +229,7 @@ void PnPsolver::SetRansacParameters(double probability, int minInliers, int maxI
         mvMaxError[i] = mvSigma2[i]*th2;
 }
 
+// REVIEW 目测函数没有被调用过
 cv::Mat PnPsolver::find(vector<bool> &vbInliers, int &nInliers)
 {
     bool bFlag;
@@ -316,7 +317,7 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
             } // 更新最佳的计算结果
 
             // 还要求精
-            if(Refine())   // 如果求精成功
+            if(Refine())   // 如果求精成功(即表示求精之后的结果能够满足退出RANSAC迭代的内点数条件了)
             {
                 nInliers = mnRefinedInliers;
                 // 转录,作为计算结果
@@ -330,6 +331,8 @@ cv::Mat PnPsolver::iterate(int nIterations, bool &bNoMore, vector<bool> &vbInlie
                 // 对直接返回了求精之后的相机位姿
                 return mRefinedTcw.clone();
             } // 如果求精成功
+
+            // 如果求精之后还是打不到能够RANSAC的结果,那么就继续进行RANSAC迭代了
 
         } // 如果当前次迭代得到的内点数已经达到了合格的要求了
     } // 迭代
@@ -376,6 +379,7 @@ bool PnPsolver::Refine()
 
     // 然后……重新根据这些点构造用于RANSAC迭代的匹配关系
     // 分配空间
+    // NOTE 注意这里其实的点应该是大于4个的,因为如果这里求精不成功,那么退出到上一层的迭代函数中的时候,这个 set_maximum_number_of_correspondences 并不会被重新上设定
     set_maximum_number_of_correspondences(vIndices.size());
     // 复位计数变量，为添加新的匹配关系做准备
     reset_correspondences();
@@ -499,6 +503,7 @@ void PnPsolver::add_correspondence(double X, double Y, double Z, double u, doubl
   number_of_correspondences++;
 }
 
+// 从给定的匹配点中计算出四个控制点(控制点的概念参考EPnP原文)
 void PnPsolver::choose_control_points(void)
 {
   // Take C0 as the reference points centroid:
@@ -880,7 +885,7 @@ void PnPsolver::estimate_R_and_t(double R[3][3], double t[3])
   t[2] = pc0[2] - dot(R[2], pw0);
 }
 
-// TODO  输出位姿,不过目测这个函数应该是在ORB中被废弃了(因为根本用不到啊)
+// DEPRECATED 输出位姿,不过目测这个函数应该是在ORB中被废弃了(因为根本用不到啊)
 void PnPsolver::print_pose(const double R[3][3], const double t[3])
 {
   cout << R[0][0] << " " << R[0][1] << " " << R[0][2] << " " << t[0] << endl;
@@ -1380,7 +1385,7 @@ void PnPsolver::qr_solve(CvMat * A, CvMat * b, CvMat * X)
 }
 
 
-
+// DEPRECATED 目测没有使用到的函数, 在原版的EPnP中用于计算计算值和真值之间的相对误差
 void PnPsolver::relative_error(double & rot_err, double & transl_err,
 			  const double Rtrue[3][3], const double ttrue[3],
 			  const double Rest[3][3],  const double test[3])
@@ -1411,6 +1416,7 @@ void PnPsolver::relative_error(double & rot_err, double & transl_err,
     sqrt(ttrue[0] * ttrue[0] + ttrue[1] * ttrue[1] + ttrue[2] * ttrue[2]);
 }
 
+// DEPRECATED 目测没有使用到的函数, 在原版的EPnP中勇于将旋转矩阵转换成为四元数的表达形式
 void PnPsolver::mat_to_quat(const double R[3][3], double q[4])
 {
   double tr = R[0][0] + R[1][1] + R[2][2];

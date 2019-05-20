@@ -79,7 +79,7 @@ public:
   /**
    * @brief 构造函数
    * @param[in] F                   当前要求解位姿的帧
-   * @param[in] vpMapPointMatches   另外一个帧（//? 更有可能是关键帧?） 的地图点
+   * @param[in] vpMapPointMatches   地图点,可能来自与局部地图,也可能来自于参考关键帧
    */
   PnPsolver(const Frame &F, const vector<MapPoint*> &vpMapPointMatches);
 
@@ -98,6 +98,7 @@ public:
   void SetRansacParameters(double probability = 0.99, int minInliers = 8 , int maxIterations = 300, int minSet = 4, float epsilon = 0.4,
                            float th2 = 5.991);
 
+  // REVIEW 目测这个函数没有被调用过
   cv::Mat find(vector<bool> &vbInliers, int &nInliers);
 
   /**
@@ -115,7 +116,9 @@ public:
 
   /** @brief (在计算完相机位姿后)检查匹配点的内外点情况 */
   void CheckInliers();
-  /** @brief //? 求精? */
+  /** @brief 使用已经是内点的匹配点对，再进行一次EPnP过程，进行相机位姿的求精. 
+   *  @return bool 返回的结果表示经过求精过程后的内点数,能否达到退出RANSAC的要求
+   */
   bool Refine();
 
   // ============================ Functions from the original EPnP code ===========================================
@@ -126,6 +129,14 @@ public:
   void set_maximum_number_of_correspondences(const int n);
   /** @brief 清空当前已有的匹配点计数,为进行新的一次迭代作准备 */
   void reset_correspondences(void);
+  /**
+   * @brief EPnP部分的函数,向堆内存的数组中添加匹配点对
+   * @param[in] X    3D点
+   * @param[in] Y    3D点
+   * @param[in] Z    3D点
+   * @param[in] u    2D点
+   * @param[in] v    2D点
+   */
   void add_correspondence(const double X, const double Y, const double Z,
               const double u, const double v);
 
@@ -137,6 +148,16 @@ public:
    */
   double compute_pose(double R[3][3], double T[3]);
 
+  /**
+   * @brief 目测没有使用到的函数, 在原版的EPnP中用于计算计算值和真值之间的相对误差
+   * @param[out] rot_err           计算得到的相对旋转误差 
+   * @param[out] transl_err        计算得到的相对平移误差
+   * @param[in]  Rtrue             旋转真值
+   * @param[in]  ttrue             平移真值
+   * @param[in]  Rest              旋转计算值
+   * @param[in]  test              平移计算值
+   * @deprecated 在ORB中没有用到
+   */
   void relative_error(double & rot_err, double & transl_err,
               const double Rtrue[3][3], const double ttrue[3],
               const double Rest[3][3],  const double test[3]);
@@ -145,6 +166,7 @@ public:
    * @brief 输出计算得到的位姿.这个函数是EPnP源码中自带的,用于调试,所以在ORB中应当算是一个被放弃了的函数(因为我们并不需要输出啊)
    * @param[in] R 旋转
    * @param[in] t 平移 
+   * @deprecated 在ORB中没有用到
    */
   void print_pose(const double R[3][3], const double t[3]);
 /**
@@ -180,7 +202,7 @@ public:
   void solve_for_sign(void);
 
   /**
-   * @brief //? TODO不知道怎么说?
+   * @brief 计算N=4时候的情况
    * 
    * @param[in]  L_6x10  矩阵L
    * @param[in]  Rho     非齐次项 \rho, 列向量
@@ -194,6 +216,12 @@ public:
    * @param[out] betas      betas
    */
   void find_betas_approx_2(const CvMat * L_6x10, const CvMat * Rho, double * betas);
+  /**
+   * @brief 计算N=3的情况
+   * @param[in]  L_6x10     L
+   * @param[in]  Rho        \rho
+   * @param[out] betas      betas
+   */
   void find_betas_approx_3(const CvMat * L_6x10, const CvMat * Rho, double * betas);
   /**
    * @brief 使用QR分解来求解增量方程 
@@ -274,6 +302,12 @@ public:
   void copy_R_and_t(const double R_dst[3][3], const double t_dst[3],
 		    double R_src[3][3], double t_src[3]);
 
+  /**
+   * @brief 目测没有使用到的函数, 在原版的EPnP中勇于将旋转矩阵转换成为四元数的表达形式
+   * @param[in]  R          需要转换的旋转矩阵
+   * @param[out] q          转换后得到的四元数表达
+   * @deprecated 在ORB中没有用到
+   */
   void mat_to_quat(const double R[3][3], double q[4]);
 
 
@@ -291,9 +325,9 @@ public:
 
   double cws[4][3],                                               ///< 存储控制点在世界坐标系下的坐标，第一维表示是哪个控制点，第二维表示是哪个坐标(x,y,z)
          ccs[4][3];                                               ///< 存储控制点在相机坐标系下的坐标, 含义同上
-  double cws_determinant;
+  double cws_determinant;                                         ///< 没有被使用到的变量,但是看变量名字,应该是用于存储某个矩阵的行列式值的
 
-  vector<MapPoint*> mvpMapPointMatches;                           ///< 存储构造的时候给出的地图点  //? 已经经过匹配了的吗?
+  vector<MapPoint*> mvpMapPointMatches;                           ///< 存储构造的时候给出的地图点 
 
   // 2D Points
   vector<cv::Point2f> mvP2D;                                      ///< 存储当前帧的2D点,由特征点转换而来,只保存了坐标信息
@@ -308,7 +342,7 @@ public:
   // Current Estimation
   double mRi[3][3];                                               ///< 在某次RANSAC迭代过程中计算得到的旋转矩阵
   double mti[3];                                                  ///< 在某次RANSAC迭代过程中计算得到的平移向量
-  cv::Mat mTcwi;
+  cv::Mat mTcwi;                                                  ///< 在程序中并没有被使用到的变量
   vector<bool> mvbInliersi;                                       ///< 记录每次迭代时的inlier点
   int mnInliersi;                                                 ///< 记录每次迭代时的inlier点的数目
 
@@ -342,7 +376,7 @@ public:
   float mRansacEpsilon;                                           ///< RANSAC中,最小内点数占全部点个数的比例
 
   // RANSAC Threshold inlier/outlier. Max error e = dist(P1,T_12*P2)^2
-  float mRansacTh;
+  float mRansacTh;                                                ///< 在程序中并没有使用到的变量
 
   // RANSAC Minimun Set used at each iteration
   int mRansacMinSet;                                              ///< 为每次RANSAC需要的特征点数，默认为4组3D-2D对应点. 参与到最少内点数的确定过程中
