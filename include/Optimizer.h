@@ -1,4 +1,15 @@
 /**
+ * @file Optimizer.h
+ * @author guoqing (1337841346@qq.com)
+ * @brief 优化器，所有用到的优化函数的声明都在这个文件中
+ * @version 0.1
+ * @date 2019-05-22
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -34,12 +45,44 @@ namespace ORB_SLAM2
 
 class LoopClosing;
 
+/** @brief 优化器,所有的优化相关的函数都在这个类中; 并且这个类只有成员函数没有成员变量,相对要好分析一点 */
 class Optimizer
 {
 public:
+
+    /**
+     * @brief bundle adjustment Optimization
+     * 
+     * 3D-2D 最小化重投影误差 e = (u,v) - project(Tcw*Pw) \n
+     * 
+     * 1. Vertex: g2o::VertexSE3Expmap()，即当前帧的Tcw
+     *            g2o::VertexSBAPointXYZ()，MapPoint的mWorldPos
+     * 2. Edge:
+     *     - g2o::EdgeSE3ProjectXYZ()，BaseBinaryEdge
+     *         + Vertex：待优化当前帧的Tcw
+     *         + Vertex：待优化MapPoint的mWorldPos
+     *         + measurement：MapPoint在当前帧中的二维位置(u,v)
+     *         + InfoMatrix: invSigma2(与特征点所在的尺度有关)
+     *         
+     * @param   vpKFs    关键帧 
+     *          vpMP     MapPoints
+     *          nIterations 迭代次数（20次）
+     *          pbStopFlag  是否强制暂停
+     *          nLoopKF  关键帧的个数 -- 但是我觉得形成了闭环关系的当前关键帧的id
+     *          bRobust  是否使用核函数
+     */
     void static BundleAdjustment(const std::vector<KeyFrame*> &vpKF, const std::vector<MapPoint*> &vpMP,
                                  int nIterations = 5, bool *pbStopFlag=NULL, const unsigned long nLoopKF=0,
                                  const bool bRobust = true);
+
+    /**
+     * @brief 进行全局BA优化，但主要功能还是调用 BundleAdjustment,这个函数相当于加了一个壳.
+     * @param[in] pMap          地图对象的指针
+     * @param[in] nIterations   迭代次数
+     * @param[in] pbStopFlag    外界给的控制GBA停止的标志位
+     * @param[in] nLoopKF       回环关键帧的个数? //?
+     * @param[in] bRobust       是否使用鲁棒核函数
+     */
     void static GlobalBundleAdjustemnt(Map* pMap, int nIterations=5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
     void static LocalBundleAdjustment(KeyFrame* pKF, bool *pbStopFlag, Map *pMap);

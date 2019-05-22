@@ -880,7 +880,11 @@ void LoopClosing::RunGlobalBundleAdjustment(unsigned long nLoopKF)
     // mbStopGBA直接传引用过去了,这样当有外部请求的时候这个优化函数能够及时相应并且结束掉
     //? 提问:进行完这个过程后我们能够获得哪些信息?
     // 目测是能够得到全部关键帧优化后的位姿,以及部分地图点优化之后的位姿
-    Optimizer::GlobalBundleAdjustemnt(mpMap,10,&mbStopGBA,nLoopKF,false);
+    Optimizer::GlobalBundleAdjustemnt(mpMap,        // 地图点对象
+                                      10,           // 迭代次数
+                                      &mbStopGBA,   // 外界控制 GBA 停止的标志
+                                      nLoopKF,      // 形成了闭环的当前关键帧的id
+                                      false);       // 不使用鲁棒核函数
 
     // Update all MapPoints and KeyFrames
     // Local Mapping was active during BA, that means that there might be new keyframes
