@@ -80,12 +80,57 @@ public:
      * @param[in] pMap          地图对象的指针
      * @param[in] nIterations   迭代次数
      * @param[in] pbStopFlag    外界给的控制GBA停止的标志位
-     * @param[in] nLoopKF       回环关键帧的个数? //?
+     * @param[in] nLoopKF       当前回环关键帧的id，其实也就是参与GBA的关键帧个数
      * @param[in] bRobust       是否使用鲁棒核函数
      */
     void static GlobalBundleAdjustemnt(Map* pMap, int nIterations=5, bool *pbStopFlag=NULL,
                                        const unsigned long nLoopKF=0, const bool bRobust = true);
+
+    
+/**
+ * @brief Local Bundle Adjustment
+ *
+ * 1. Vertex:
+ *     - g2o::VertexSE3Expmap()，LocalKeyFrames，即当前关键帧的位姿、与当前关键帧相连的关键帧的位姿
+ *     - g2o::VertexSE3Expmap()，FixedCameras，即能观测到LocalMapPoints的关键帧（并且不属于LocalKeyFrames）的位姿，在优化中这些关键帧的位姿不变
+ *     - g2o::VertexSBAPointXYZ()，LocalMapPoints，即LocalKeyFrames能观测到的所有MapPoints的位置
+ * 2. Edge:
+ *     - g2o::EdgeSE3ProjectXYZ()，BaseBinaryEdge
+ *         + Vertex：关键帧的Tcw，MapPoint的Pw
+ *         + measurement：MapPoint在关键帧中的二维位置(u,v)
+ *         + InfoMatrix: invSigma2(与特征点所在的尺度有关)
+ *     - g2o::EdgeStereoSE3ProjectXYZ()，BaseBinaryEdge
+ *         + Vertex：关键帧的Tcw，MapPoint的Pw
+ *         + measurement：MapPoint在关键帧中的二维位置(ul,v,ur)
+ *         + InfoMatrix: invSigma2(与特征点所在的尺度有关)
+ *         
+ * @param pKF        KeyFrame
+ * @param pbStopFlag 是否停止优化的标志
+ * @param pMap       在优化后，更新状态时需要用到Map的互斥量mMutexMapUpdate
+ * @note 由局部建图线程调用,对局部地图进行优化的函数
+ */
     void static LocalBundleAdjustment(KeyFrame* pKF, bool *pbStopFlag, Map *pMap);
+
+    /**
+     * @brief Pose Only Optimization
+     * 
+     * 3D-2D 最小化重投影误差 e = (u,v) - project(Tcw*Pw) \n
+     * 只优化Frame的Tcw，不优化MapPoints的坐标
+     * 
+     * 1. Vertex: g2o::VertexSE3Expmap()，即当前帧的Tcw
+     * 2. Edge:
+     *     - g2o::EdgeSE3ProjectXYZOnlyPose()，BaseUnaryEdge
+     *         + Vertex：待优化当前帧的Tcw
+     *         + measurement：MapPoint在当前帧中的二维位置(u,v)
+     *         + InfoMatrix: invSigma2(与特征点所在的尺度有关)
+     *     - g2o::EdgeStereoSE3ProjectXYZOnlyPose()，BaseUnaryEdge
+     *         + Vertex：待优化当前帧的Tcw
+     *         + measurement：MapPoint在当前帧中的二维位置(ul,v,ur)
+     *         + InfoMatrix: invSigma2(与特征点所在的尺度有关)
+     *
+     * @param   pFrame Frame
+     * @return  inliers数量
+     */
     int static PoseOptimization(Frame* pFrame);
 
     // if bFixScale is true, 6DoF optimization (stereo,rgbd), 7DoF otherwise (mono)

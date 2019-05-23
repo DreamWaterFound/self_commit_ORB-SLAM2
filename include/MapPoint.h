@@ -259,7 +259,7 @@ public:
 
     //REVIEW 下面的....都没看明白
     // Variables used by local mapping
-    long unsigned int mnBALocalForKF;
+    long unsigned int mnBALocalForKF;           ///< 在局部建图线程调用优化的时候使用,防止这个地图点被多个关键帧重复索引
     long unsigned int mnFuseCandidateForKF;     ///< 在局部建图线程中使用,表示被用来进行地图点融合的关键帧(存储的是这个关键帧的id)
 
     // Variables used by loop closing -- 一般都是为了避免重复操作

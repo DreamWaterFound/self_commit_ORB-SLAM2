@@ -398,8 +398,7 @@ public:
 
     // Flag to identify outlier associations.
     // 观测不到Map中的3D点
-	//TODO 可是这里说的不应该是当前帧中标记那些属于外点的特征点吗，目前frame.c中没有真正意义上使用到，无法做定论
-    /// 属于外点的特征点标记
+    /// 属于外点的特征点标记,在 Optimizer::PoseOptimization 使用了
     std::vector<bool> mvbOutlier;
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.

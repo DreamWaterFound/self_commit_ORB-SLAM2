@@ -320,7 +320,8 @@ public:
 
     // Variables used by the local mapping
     long unsigned int mnBALocalForKF;
-    long unsigned int mnBAFixedForKF;
+    long unsigned int mnBAFixedForKF;           ///< 在局部建图线程调用局部优化的时候使用,表示当前关键帧能够观测到某个地图点电视却不属于局部关键帧,so这个关键帧
+                                                ///< 只是提供约束信息但是却不会去优化这个关键帧;为了避免重复添加,这里要记录触发优化的关键帧的id
 
     // Variables used by the keyframe database 下面的这些变量都是临时的,由外部调用暂时存放一些数据
     /// 标记了当前关键帧是id为mnLoopQuery的回环检测的候选关键帧
