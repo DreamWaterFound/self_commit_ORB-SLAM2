@@ -134,6 +134,24 @@ public:
     int static PoseOptimization(Frame* pFrame);
 
     // if bFixScale is true, 6DoF optimization (stereo,rgbd), 7DoF otherwise (mono)
+    /**
+     * @brief 闭环检测后，EssentialGraph优化
+     *
+     * 1. Vertex:
+     *     - g2o::VertexSim3Expmap，Essential graph中关键帧的位姿
+     * 2. Edge:
+     *     - g2o::EdgeSim3()，BaseBinaryEdge
+     *         + Vertex：关键帧的Tcw，MapPoint的Pw
+     *         + measurement：经过CorrectLoop函数步骤2，Sim3传播校正后的位姿
+     *         + InfoMatrix: 单位矩阵     
+     *
+     * @param pMap               全局地图
+     * @param pLoopKF            闭环匹配上的关键帧
+     * @param pCurKF             当前关键帧
+     * @param NonCorrectedSim3   未经过Sim3传播调整过的关键帧位姿
+     * @param CorrectedSim3      经过Sim3传播调整过的关键帧位姿
+     * @param LoopConnections    因闭环时MapPoints调整而新生成的边
+     */
     void static OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
                                        const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
                                        const LoopClosing::KeyFrameAndPose &CorrectedSim3,
