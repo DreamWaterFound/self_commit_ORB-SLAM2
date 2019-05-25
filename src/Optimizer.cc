@@ -1363,13 +1363,14 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
  */
 int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches1, g2o::Sim3 &g2oS12, const float th2, const bool bFixScale)
 {
-    // 步骤1：初始化g2o优化器
+    // step 1：初始化g2o优化器
     // 先构造求解器
     g2o::SparseOptimizer optimizer;
 
     // 构造线性方程求解器，Hx = -b的求解器
     g2o::BlockSolverX::LinearSolverType * linearSolver;
     // 使用dense的求解器，（常见非dense求解器有cholmod线性求解器和shur补线性求解器）
+    // ? 还是不明白有什么不同
     linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
     g2o::BlockSolverX * solver_ptr = new g2o::BlockSolverX(linearSolver);
 
@@ -1388,12 +1389,14 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     const cv::Mat t2w = pKF2->GetTranslation();
 
     // Set Sim3 vertex
-    // 步骤2.1 添加Sim3顶点
+    // step 2.1 添加Sim3顶点
     g2o::VertexSim3Expmap * vSim3 = new g2o::VertexSim3Expmap();    
+    // 根据传感器类型决定是否固定尺度
     vSim3->_fix_scale=bFixScale;
     vSim3->setEstimate(g2oS12);
     vSim3->setId(0);
     vSim3->setFixed(false);// 优化Sim3顶点
+    // 这里的顶点性质还是有些不太一样的
     vSim3->_principle_point1[0] = K1.at<float>(0,2); // 光心横坐标cx
     vSim3->_principle_point1[1] = K1.at<float>(1,2); // 光心纵坐标cy
     vSim3->_focal_length1[0] = K1.at<float>(0,0); // 焦距 fx
@@ -1406,6 +1409,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 
     // Set MapPoint vertices
     const int N = vpMatches1.size();
+    // 获取当前关键帧，和特征点相匹配的地图点
     const vector<MapPoint*> vpMapPoints1 = pKF1->GetMapPointMatches();
 
     vector<g2o::EdgeSim3ProjectXYZ*> vpEdges12; //pKF2对应的MapPoints到pKF1的投影
@@ -1416,10 +1420,12 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     vpEdges12.reserve(2*N);
     vpEdges21.reserve(2*N);
 
+    // 观测是二维的，对应的学生t分布的自由度为2
     const float deltaHuber = sqrt(th2);
 
     int nCorrespondences = 0;
 
+    // 遍历每对匹配点
     for(int i=0; i<N; i++)
     {
         if(!vpMatches1[i])
@@ -1429,21 +1435,25 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         MapPoint* pMP1 = vpMapPoints1[i];
         MapPoint* pMP2 = vpMatches1[i];
 
+        // 保证顶点的id能够错开
         const int id1 = 2*i+1;
         const int id2 = 2*(i+1);
 
+        // 
         const int i2 = pMP2->GetIndexInKeyFrame(pKF2);
 
         if(pMP1 && pMP2)
         {
             if(!pMP1->isBad() && !pMP2->isBad() && i2>=0)
             {
-                // 步骤2.2 添加PointXYZ顶点
+                // step 2.2 如果这对匹配点都靠谱，并且对应的2D特征点也都存在的话，添加PointXYZ顶点
                 g2o::VertexSBAPointXYZ* vPoint1 = new g2o::VertexSBAPointXYZ();
                 cv::Mat P3D1w = pMP1->GetWorldPos();
                 cv::Mat P3D1c = R1w*P3D1w + t1w;
+                // 这里都是点在各自相机坐标系下的位置
                 vPoint1->setEstimate(Converter::toVector3d(P3D1c));
                 vPoint1->setId(id1);
+                // 不需要优化点的位姿，下同
                 vPoint1->setFixed(true);
                 optimizer.addVertex(vPoint1);
 
@@ -1468,20 +1478,24 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         const cv::KeyPoint &kpUn1 = pKF1->mvKeysUn[i];
         obs1 << kpUn1.pt.x, kpUn1.pt.y;
 
-        // 步骤2.3 添加两个顶点（3D点）到相机投影的边
+        // step 2.3 添加两个顶点（3D点）到相机投影的边 -- 投影到当前关键帧 -- 正向投影
         g2o::EdgeSim3ProjectXYZ* e12 = new g2o::EdgeSim3ProjectXYZ();
         e12->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id2)));
+        // ? 没看懂为什么这里添加的节点的id为0？
         e12->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
         e12->setMeasurement(obs1);
+        // 信息矩阵也和这个点的可靠程度（在图像金字塔中的图层）有关
         const float &invSigmaSquare1 = pKF1->mvInvLevelSigma2[kpUn1.octave];
         e12->setInformation(Eigen::Matrix2d::Identity()*invSigmaSquare1);
 
+        // 使用鲁棒核函数
         g2o::RobustKernelHuber* rk1 = new g2o::RobustKernelHuber;
         e12->setRobustKernel(rk1);
         rk1->setDelta(deltaHuber);
         optimizer.addEdge(e12);
 
         // Set edge x2 = S21*X1
+        // 接下来是添加投影到 闭环关键帧 -- 反向投影
         Eigen::Matrix<double,2,1> obs2;
         const cv::KeyPoint &kpUn2 = pKF2->mvKeysUn[i2];
         obs2 << kpUn2.pt.x, kpUn2.pt.y;
@@ -1489,6 +1503,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         g2o::EdgeInverseSim3ProjectXYZ* e21 = new g2o::EdgeInverseSim3ProjectXYZ();
 
         e21->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id1)));
+        // ? 这里添加的节点id也为0
         e21->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
         e21->setMeasurement(obs2);
         float invSigmaSquare2 = pKF2->mvInvLevelSigma2[kpUn2.octave];
@@ -1505,11 +1520,11 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     }
 
     // Optimize!
-    // 步骤3：g2o开始优化，先迭代5次
+    // step 3：g2o开始优化，先迭代5次
     optimizer.initializeOptimization();
     optimizer.optimize(5);
 
-    // 步骤4：剔除一些误差大的边
+    // step 4：剔除一些误差大的边
     // Check inliers
     // 进行卡方检验，大于阈值的边剔除
     int nBad=0;
@@ -1532,20 +1547,23 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         }
     }
 
+    // 如果有误差较大的边被剔除那么说明回环质量并不是非常好,还要多迭代几次;反之就少迭代几次
     int nMoreIterations;
     if(nBad>0)
         nMoreIterations=10;
     else
         nMoreIterations=5;
 
+    // 如果经过上面的剔除后剩下的匹配关系已经非常少了,那么就放弃优化
     if(nCorrespondences-nBad<10)
-        return 0;
+        return 0;       // 内点数直接设置为0
 
     // Optimize again only with inliers
-    // 步骤5：再次g2o优化剔除后剩下的边
+    // step 5：再次g2o优化剔除后剩下的边
     optimizer.initializeOptimization();
     optimizer.optimize(nMoreIterations);
 
+    // 统计第二次优化之后,这些匹配点中是内点的个数
     int nIn = 0;
     for(size_t i=0; i<vpEdges12.size();i++)
     {
@@ -1564,7 +1582,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     }
 
     // Recover optimized Sim3
-    // 步骤6：得到优化后的结果
+    // step 6：得到优化后的结果
     g2o::VertexSim3Expmap* vSim3_recov = static_cast<g2o::VertexSim3Expmap*>(optimizer.vertex(0));
     g2oS12= vSim3_recov->estimate();
 
