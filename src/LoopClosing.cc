@@ -652,7 +652,7 @@ void LoopClosing::CorrectLoop()
         } // 得到修正后的当前关键帧组中的关键帧的位姿
 
         // Correct all MapPoints obsrved by current keyframe and neighbors, so that they align with the other side of the loop
-        // STEP 2.2：步骤2.1得到调整相连帧位姿后，修正这些关键帧的MapPoints
+        // STEP 2.2：得到调整相连帧位姿后，修正这些关键帧的MapPoints
         // 遍历当前关键帧组中的每一个关键帧
         for(KeyFrameAndPose::iterator mit=CorrectedSim3.begin(), mend=CorrectedSim3.end(); mit!=mend; mit++)
         {

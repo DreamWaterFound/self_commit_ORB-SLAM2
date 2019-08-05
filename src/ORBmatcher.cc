@@ -577,7 +577,7 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
             if(bestDist<(float)bestDist2*mfNNratio)
             {
                 // 交换一下，不然在下面的过程中这个匹配信息就丢失了
-                // ! 关键是，这个 vnMatches21 从开始声明和初始化之后就没有被写入的操作啊？
+                // ! 关键是，这个 vnMatches21 从开始声明和初始化之后就没有被写入的操作啊？(只是其中的每个元素都被初始化为-1)
                 if(vnMatches21[bestIdx2]>=0)
                 {
                     vnMatches12[vnMatches21[bestIdx2]]=-1;
@@ -1586,8 +1586,8 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
     const cv::Mat tlc = Rlw*twc+tlw; // Rlw*twc(w) = twc(l), twc(l) + tlw(l) = tlc(l)
 
     // 判断前进还是后退
-    const bool bForward = tlc.at<float>(2)>CurrentFrame.mb && !bMono; // 非单目情况，如果Z大于基线，则表示前进
-    const bool bBackward = -tlc.at<float>(2)>CurrentFrame.mb && !bMono; // 非单目情况，如果Z小于基线，则表示前进
+    const bool bForward = tlc.at<float>(2) > CurrentFrame.mb && !bMono; // 非单目情况，如果Z大于基线，则表示相机明显前进
+    const bool bBackward = -tlc.at<float>(2) > CurrentFrame.mb && !bMono; // 非单目情况，如果-Z小于基线，则表示相机明显后退
 
     // 遍历上一帧中有效的地图点
     for(int i=0; i<LastFrame.N; i++)
@@ -1647,11 +1647,12 @@ int ORBmatcher::SearchByProjection(Frame &CurrentFrame, const Frame &LastFrame, 
                 int bestDist = 256;
                 int bestIdx2 = -1;
 
-                // 遍历满足条件的特征点
+                // 遍历满足条件的特征点 
                 for(vector<size_t>::const_iterator vit=vIndices2.begin(), vend=vIndices2.end(); vit!=vend; vit++)
                 {
                     // 如果该特征点已经有对应的MapPoint了,则退出该次循环
                     const size_t i2 = *vit;
+                    // ? 新问题，注意在Tracker中调用该函数之前，mvpMapPoints已经清空了啊？ 这里的判断相当于没有一样
                     if(CurrentFrame.mvpMapPoints[i2])
                         if(CurrentFrame.mvpMapPoints[i2]->Observations()>0)
                             continue;

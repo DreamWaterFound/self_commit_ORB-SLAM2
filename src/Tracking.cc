@@ -434,6 +434,8 @@ void Tracking::Track()
     // Get Map Mutex -> Map cannot be changed
     //其实也就只有在这里才上了一次锁
     //? 疑问:这样子不是在大部分的时间中阻止了对地图的更新吗?
+    // -- 不过应该注意到ORB-SLAM的主要耗时在特征点的提取和匹配部分,这些部分具体体现在帧的构造函数中,而在那个时候地图是没有被上锁的,
+    // -- 还是有足够的时间更新地图的
     unique_lock<mutex> lock(mpMap->mMutexMapUpdate);
 
     // step 1：初始化
