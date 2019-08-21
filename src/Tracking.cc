@@ -448,7 +448,7 @@ void Tracking::Track()
             //单目初始化
             MonocularInitialization();
 
-        //这一帧处理完成了,调用帧绘制器来赋值一份当前帧的状态
+        //这一帧处理完成了,更新帧绘制器中存储的最近的一份状态
         mpFrameDrawer->Update(this);
 
         //这个状态量在上面的初始化函数中被更新
@@ -900,13 +900,15 @@ void Tracking::MonocularInitialization()
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
 
-            // 这两句是多余的
+            // 这句判断其实看上去有点多余，不过也是在析构指针指向的对象之前先检查一下，来避免出现段错误
+            // --- 不对，就是多余！ 因为单目初始化器还没有被构建，我们才来到这个分支的
             if(mpInitializer)
                 delete mpInitializer;
 
             // 由当前帧构造初始器 sigma:1.0 iterations:200
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
 
+            // -1 表示没有任何匹配。这里面存储的是匹配的点的id
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;
@@ -999,8 +1001,8 @@ void Tracking::MonocularInitialization()
 void Tracking::CreateInitialMapMonocular()
 {
     // Create KeyFrames 认为单目初始化时候的参考帧和当前帧都是关键帧
-    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB);
-    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
+    KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB);  // 第一帧
+    KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);  // 第二帧
 
     // step 1：将初始关键帧的描述子转为BoW
     pKFini->ComputeBoW();
@@ -1043,7 +1045,7 @@ void Tracking::CreateInitialMapMonocular()
         pMP->AddObservation(pKFini,i);
         pMP->AddObservation(pKFcur,mvIniMatches[i]);
 
-        // b.从众多观测到该MapPoint的特征点中挑选区分读最高的描述子
+        // b.从众多观测到该MapPoint的特征点中挑选区分度最高的描述子
         pMP->ComputeDistinctiveDescriptors();
         // c.更新该MapPoint平均观测方向以及观测距离的范围
         pMP->UpdateNormalAndDepth();
@@ -1148,6 +1150,7 @@ void Tracking::CheckReplacedInLastFrame()
         if(pMP)
         {
             //获取其是否被替换,以及替换后的点
+            // 这也是程序不选择间这个地图点删除的原因，因为删除了就。。。段错误了
             MapPoint* pRep = pMP->GetReplaced();
             if(pRep)
             {   
@@ -1179,7 +1182,7 @@ bool Tracking::TrackReferenceKeyFrame()
     vector<MapPoint*> vpMapPointMatches;
 
     // step 2：通过特征点的BoW加快当前帧与参考帧之间的特征点匹配
-    //NOYICE 之前师兄说的，通过词袋模型加速匹配就是在这里哇
+    //NOTICE 之前师兄说的，通过词袋模型加速匹配就是在这里哇
     // 特征点的匹配关系由MapPoints进行维护
     int nmatches = matcher.SearchByBoW(
         mpReferenceKF,          //参考关键帧

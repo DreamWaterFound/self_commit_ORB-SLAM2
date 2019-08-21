@@ -777,6 +777,7 @@ void LoopClosing::CorrectLoop()
     // Add loop edge
     // STEP 7：添加当前帧与闭环匹配帧之间的边（这个连接关系不优化）
     // 这两句话应该放在OptimizeEssentialGraph之前，因为OptimizeEssentialGraph的步骤4.2中有优化，（wubo???） -- 师兄..我们不优化这个回环边
+    // ? but, 我们为什么不优化这个回环边呢?
     mpMatchedKF->AddLoopEdge(mpCurrentKF);
     mpCurrentKF->AddLoopEdge(mpMatchedKF);
 

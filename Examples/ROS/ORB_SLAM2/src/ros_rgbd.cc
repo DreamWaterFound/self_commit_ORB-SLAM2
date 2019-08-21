@@ -1,4 +1,16 @@
 /**
+ * @file ros_rgbd.cc
+ * @author guoqing (1337841346@qq.com)
+ * @brief ORB RGB-D 输入的ROS节点实现
+ * @version 0.1
+ * @date 2019-08-06
+ * 
+ * @copyright Copyright (c) 2019
+ * 
+ */
+
+
+/**
 * This file is part of ORB-SLAM2.
 *
 * Copyright (C) 2014-2016 Raúl Mur-Artal <raulmur at unizar dot es> (University of Zaragoza)
@@ -17,7 +29,6 @@
 * You should have received a copy of the GNU General Public License
 * along with ORB-SLAM2. If not, see <http://www.gnu.org/licenses/>.
 */
-
 
 #include<iostream>
 #include<algorithm>
