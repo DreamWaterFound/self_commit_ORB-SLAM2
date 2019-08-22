@@ -122,7 +122,7 @@ bool Initializer::Initialize(
     {
         vAllIndices.push_back(i);
     }
-
+力
     // Generate sets of 8 points for each RANSAC iteration
     /** <li> <b>步骤二</b> 在所有匹配特征点对中随机选择8对匹配特征点为一组，共选择 Initializer::mMaxIterations 组, 
      * 用于 Initializer::FindHomography() 和 Initializer::FindFundamental() 求解</li> 

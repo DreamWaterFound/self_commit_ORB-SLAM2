@@ -1,4 +1,4 @@
-/**
+t/**
  * @file Tracking.cc
  * @author guoqing (1337841346@qq.com)
  * @brief 追踪线程
@@ -79,12 +79,12 @@ Tracking::Tracking(
         mState(NO_IMAGES_YET),                              //当前系统还没有准备好
         mSensor(sensor),                                
         mbOnlyTracking(false),                              //处于SLAM模式
-        mbVO(false),                                        //没有跟丢 //?
+        mbVO(false),                                        //当处于纯跟踪模式的时候，这个变量表示了当前跟踪状态的好坏
         mpORBVocabulary(pVoc),          
         mpKeyFrameDB(pKFDB), 
         mpInitializer(static_cast<Initializer*>(NULL)),     //暂时给地图初始化器设置为空指针
         mpSystem(pSys), 
-        mpViewer(NULL),                                     //也没有可视化查看器 //? 为什么这个在追踪线程生成的时候不能确定?
+        mpViewer(NULL),                                     //注意可视化的查看器是可选的，因为ORB-SLAM2最后是被编译成为一个库，所以对方人拿过来用的时候也应该有权力说我不要可视化界面（何况可视化界面也要占用不少的CPU资源）
         mpFrameDrawer(pFrameDrawer),
         mpMapDrawer(pMapDrawer), 
         mpMap(pMap), 
@@ -114,7 +114,7 @@ Tracking::Tracking(
     // [k1 k2 p1 p2 k3]
     cv::Mat DistCoef(4,1,CV_32F);
     DistCoef.at<float>(0) = fSettings["Camera.k1"];
-    DistCoef.at<float>(1) = fSettings["Camera.k2"];
+    DistCoef.at<float>(1) = fSettings["Camera.k2"]t
     DistCoef.at<float>(2) = fSettings["Camera.p1"];
     DistCoef.at<float>(3) = fSettings["Camera.p2"];
     const float k3 = fSettings["Camera.k3"];
@@ -455,7 +455,8 @@ void Tracking::Track()
         if(mState!=OK)
             return;
     }
-    else// step 2：跟踪
+    // s}tep 2：跟踪
+    else
     {
         // System is initialized. Track Frame.
 
@@ -479,7 +480,6 @@ void Tracking::Track()
                 // 检查并更新上一帧被替换的MapPoints
                 // 更新Fuse函数和SearchAndFuse函数替换的MapPoints
                 //由于追踪线程需要使用上一帧的信息,而局部建图线程则可能会对原有的地图点进行替换.在这里进行检查
-                //? 但是检查得到的结果是什么呢?
                 CheckReplacedInLastFrame();
 
                 // step 2.1：跟踪上一帧或者参考帧或者重定位
@@ -800,7 +800,7 @@ void Tracking::StereoInitialization()
         // KeyFrame包含Frame、地图3D点、以及BoW
         // KeyFrame里有一个mpMap，Tracking里有一个mpMap，而KeyFrame里的mpMap都指向Tracking里的这个mpMap
         // KeyFrame里有一个mpKeyFrameDB，Tracking里有一个mpKeyFrameDB，而KeyFrame里的mpMap都指向Tracking里的这个mpKeyFrameDB
-        //? 提问: 为什么要指向Tracking中的相应的变量呢?
+        // 提问: 为什么要指向Tracking中的相应的变量呢? -- 因为Tracking是主线程，是它创建和加载的这些模块
         KeyFrame* pKFini = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
         // Insert KeyFrame in the map
@@ -858,6 +858,7 @@ void Tracking::StereoInitialization()
 
         mvpLocalKeyFrames.push_back(pKFini);
         //? 这个局部地图点竟然..不在mpLocalMapper中管理?
+        // 我现在的想法是，这个点只是暂时被保存在了 Tracking 线程之中， 所以称之为 local 
         mvpLocalMapPoints=mpMap->GetAllMapPoints();
         mpReferenceKF = pKFini;
         mCurrentFrame.mpReferenceKF = pKFini;
@@ -1029,7 +1030,12 @@ void Tracking::CreateInitialMapMonocular()
         // step 4.1：用3D点构造MapPoint
         MapPoint* pMP = new MapPoint(
             worldPos,
-            pKFcur,     //? 值得寻味:为什么不是 pKFini ? 这里的关键帧的设置有什么说法吗? 
+            pKFcur,     // NOTE 这里之所以让新建的地图点的参考关键帧是第二帧，原因是在Tracking过程中有个阶段需要根据上一帧的地图点来进行
+                        // 重投影得到在图像区域上的匹配；如果设置了参考关键帧是第一帧的话，那么第三帧就会很尴尬。。。找不到第二帧的地图点
+                        // ? 可是下面的 4.3 中，pKFcur也会添加观测信息？
+                        // 我怀疑这样做的目的是给这些初始地图点删除的机会。第一帧不会被优化也不会被删除，如果参考关键帧设置成为了第一帧的话，
+                        // 就会导致这些初始地图点没有被删除？？
+                        // 额。。。好像这样子也说不通
             mpMap);
 
         // step 4.2：为该MapPoint添加属性：
@@ -1243,7 +1249,7 @@ void Tracking::UpdateLastFrame()
     KeyFrame* pRef = mLastFrame.mpReferenceKF;
     //lastframe 到 ref_keyframe的位姿
     cv::Mat Tlr = mlRelativeFramePoses.back();
-
+    // 单目的时候，相当于只是完成了将上一帧的世界坐标系下的位姿计算出来
     mLastFrame.SetPose(Tlr*pRef->GetPose()); // Tlr*Trw = Tlw l:last r:reference w:world
 
     // 如果上一帧为关键帧，或者单目的情况，则退出
@@ -1335,7 +1341,7 @@ void Tracking::UpdateLastFrame()
 /**
  * @brief 根据匀速度模型对上一帧的MapPoints进行跟踪
  * 
- * 1. 非单目情况，需要对上一帧产生一些新的MapPoints（临时）     //? 为什么只有非单目情况才这样做呢? 是因为传感器的原因吗? 
+ * 1. 非单目情况，需要对上一帧产生一些新的MapPoints（临时） (因为传感器的原因，单目情况下仅仅凭借一帧没法生成可靠的地图点)
  * 2. 将上一帧的MapPoints投影到当前帧的图像平面上，在投影的位置进行区域匹配  NOTICE 加快了匹配的速度
  * 3. 根据匹配对估计当前帧的姿态
  * 4. 根据姿态剔除误匹配
@@ -1351,7 +1357,9 @@ bool Tracking::TrackWithMotionModel()
     // step 1：更新上一帧的位姿；对于双目或rgbd摄像头，还会根据深度值为上一关键帧生成新的MapPoints
     // （跟踪过程中需要将当前帧与上一帧进行特征点匹配，将上一帧的MapPoints投影到当前帧可以缩小匹配范围）
     // 在跟踪过程中，去除outlier的MapPoint，如果不及时增加MapPoint会逐渐减少
-    // 这个函数的功能就是补充增加RGBD和双目相机上一帧的MapPoints数   //? 那么单目的时候呢? 
+    // 这个函数的功能就是补充增加RGBD和双目相机上一帧的MapPoints数  
+    // 那么单目的时候呢? - 单目的时候就不加呗，单目的时候只计算上一帧相对于世界坐标系的位姿
+    // ？因为这里来看，计算的位姿是相对于参考关键帧的
     UpdateLastFrame();
 
     // 根据Const Velocity Model( NOTICE  认为这两帧之间的相对运动和之前两帧间相对运动相同)估计当前帧的位姿
