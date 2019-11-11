@@ -232,6 +232,7 @@ void FrameDrawer::Update(Tracking *pTracker)
     mvbVO = vector<bool>(N,false);
     mvbMap = vector<bool>(N,false);
     //mbOnlyTracking等于false表示正常VO模式（有地图更新），mbOnlyTracking等于true表示用户手动选择定位模式
+    // ! 上述表达可能有误
     mbOnlyTracking = pTracker->mbOnlyTracking;
 
     //如果上一帧的时候,追踪器没有进行初始化

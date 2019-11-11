@@ -1231,7 +1231,6 @@ void ORBextractor::ComputeKeyPointsOld(
 		//同时计算每个图像cell的宽度和高度
         const int cellW = ceil((float)W/levelCols);
         const int cellH = ceil((float)H/levelRows);
-		//HERE
 
 		//计算本层图像中的总cell个数
         const int nCells = levelRows*levelCols;

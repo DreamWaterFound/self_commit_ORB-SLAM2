@@ -210,7 +210,7 @@ protected:
 
     std::vector<int> mnFeaturesPerLevel;		///<分配到每层图像中，要提取的特征点数目
 
-    std::vector<int> umax;	                    ///<计算描述子的时候，有个圆形的图像区域，这个vector中存储了每行u轴的边界（四分之一，其他部分通过对称获得）
+    std::vector<int> umax;	                    ///<计算特征点方向的时候，有个圆形的图像区域，这个vector中存储了每行u轴的边界（四分之一，其他部分通过对称获得）
 
     std::vector<float> mvScaleFactor;		    ///<每层图像的缩放因子
     std::vector<float> mvInvScaleFactor;        ///<以及每层缩放因子的倒数

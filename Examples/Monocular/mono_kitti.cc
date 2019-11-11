@@ -31,9 +31,17 @@
 
 using namespace std;
 
+/**
+ * @brief 获取图像序列中每一张图像的访问路径和时间戳
+ * @param[in]  strSequence              图像序列的存放路径
+ * @param[out] vstrImageFilenames       图像序列中每张图像的存放路径
+ * @param[out] vTimestamps              图像序列中每张图像的时间戳
+ */
 void LoadImages(const string &strSequence, vector<string> &vstrImageFilenames,
                 vector<double> &vTimestamps);
 
+
+// 主函数工作原理和 mono_euroc.cc 基本相同
 int main(int argc, char **argv)
 {
     if(argc != 4)
@@ -124,8 +132,11 @@ int main(int argc, char **argv)
     return 0;
 }
 
+
+// 获取图像序列中每一张图像的访问路径和时间戳
 void LoadImages(const string &strPathToSequence, vector<string> &vstrImageFilenames, vector<double> &vTimestamps)
 {
+    // step 1 读取时间戳文件
     ifstream fTimes;
     string strPathTimeFile = strPathToSequence + "/times.txt";
     fTimes.open(strPathTimeFile.c_str());
@@ -133,16 +144,19 @@ void LoadImages(const string &strPathToSequence, vector<string> &vstrImageFilena
     {
         string s;
         getline(fTimes,s);
+        // 当该行不为空的时候执行
         if(!s.empty())
         {
             stringstream ss;
             ss << s;
             double t;
             ss >> t;
+            // 保存时间戳
             vTimestamps.push_back(t);
         }
     }
 
+    // step 1 使用左目图像, 生成左目图像序列中的每一张图像的文件名
     string strPrefixLeft = strPathToSequence + "/image_0/";
 
     const int nTimes = vTimestamps.size();

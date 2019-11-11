@@ -31,6 +31,8 @@
 
 using namespace std;
 
+// 基本操作类似 stereo_euroc.cc
+
 void LoadImages(const string &strPathToSequence, vector<string> &vstrImageLeft,
                 vector<string> &vstrImageRight, vector<double> &vTimestamps);
 
@@ -60,6 +62,8 @@ int main(int argc, char **argv)
     cout << endl << "-------" << endl;
     cout << "Start processing sequence ..." << endl;
     cout << "Images in the sequence: " << nImages << endl << endl;   
+
+    // NOTE 由于Kitti数据集的图像已经经过双目矫正的处理，所以这里就不需要再进行矫正的操作了
 
     // Main loop
     cv::Mat imLeft, imRight;
@@ -122,11 +126,13 @@ int main(int argc, char **argv)
     cout << "mean tracking time: " << totaltime/nImages << endl;
 
     // Save camera trajectory
+    // 以KITTI格式存储相机轨迹数据
     SLAM.SaveTrajectoryKITTI("CameraTrajectory.txt");
 
     return 0;
 }
 
+// 类似 mono_kitti.cc， 不过是生成了双目的图像路径
 void LoadImages(const string &strPathToSequence, vector<string> &vstrImageLeft,
                 vector<string> &vstrImageRight, vector<double> &vTimestamps)
 {

@@ -30,6 +30,8 @@
 
 using namespace std;
 
+// 主要的操作和 mono_euroc.cc 类似
+
 void LoadImages(const string &strFile, vector<string> &vstrImageFilenames,
                 vector<double> &vTimestamps);
 

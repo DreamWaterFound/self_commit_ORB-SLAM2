@@ -39,6 +39,7 @@
 #include<opencv2/core/core.hpp>
 #include<mutex>
 
+
 namespace ORB_SLAM2
 {
 
@@ -79,16 +80,14 @@ public:
      */
     void SetWorldPos(const cv::Mat &Pos);
     /**
-     * @brief 获取世界坐标 //?
-     * 
-     * @return cv::Mat 世界...位姿 ? //? 
+     * @brief 获取当前地图点在世界坐标系下的位置
+     * @return cv::Mat 位置
      */
     cv::Mat GetWorldPos();
 
     /**
-     * @brief 获取 //?
-     * 
-     * @return cv::Mat 
+     * @brief 获取当前地图点的平均观测方向
+     * @return cv::Mat 一个向量
      */
     cv::Mat GetNormal();
     /**
@@ -100,12 +99,12 @@ public:
 
     /**
      * @brief 获取观测到当前地图点的关键帧
-     * 
-     * @return std::map<KeyFrame*,size_t> 观测到当前地图点的关键帧序列
-     * //? 但是这个数据结构中,后面的size_t中存储的键值是什么? 
+     * @return std::map<KeyFrame*,size_t> 观测到当前地图点的关键帧序列； 
+     *                                    size_t 这个对象对应为该地图点在该关键帧的特征点的访问id
      */
     std::map<KeyFrame*,size_t> GetObservations();
-    //?
+    
+    // 获取当前地图点的被观测次数
     int Observations();
 
     /**
@@ -120,7 +119,7 @@ public:
     void AddObservation(KeyFrame* pKF,size_t idx);
     /**
      * @brief 取消某个关键帧对当前地图点的观测
-     * //? 为什么会有这个操作? 什么样子的情况下会发生这种操作?
+     * @detials 如果某个关键帧要被删除，那么会发生这个操作
      * @param[in] pKF 
      */
     void EraseObservation(KeyFrame* pKF);
@@ -320,6 +319,7 @@ protected:
     std::mutex mMutexPos;
     ///对当前地图点的特征信息进行操作的时候的互斥量
     std::mutex mMutexFeatures;
+
 };
 
 } //namespace ORB_SLAM
