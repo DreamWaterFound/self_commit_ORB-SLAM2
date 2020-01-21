@@ -1194,7 +1194,7 @@ void PnPsolver::compute_A_and_b_gauss_newton(const double * l_6x10, const double
 
     // step 2: 计算当前行的非齐次项
     cvmSet(b, i, 0, rho[i] -
-	   (
+	   (                                    // 从0开始的下标 | 从1开始的下标
 	    rowL[0] * betas[0] * betas[0] +     //b00 b11
 	    rowL[1] * betas[0] * betas[1] +     //b01 b12
 	    rowL[2] * betas[1] * betas[1] +     //b11 b22

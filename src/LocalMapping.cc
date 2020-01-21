@@ -451,6 +451,8 @@ void LocalMapping::CreateNewMapPoints()
             // step 6.3：对于双目，利用双目得到视差角
             if(bStereo1)//传感器是双目相机,并且当前的关键帧的这个点有对应的深度
                 // 其实就是利用双目成像的原理,计算出双目相机两个相机观察这个点的时候的视差角;画个图就一目了然了
+                // 不过无论是这个公式还是下面的公式， 都只能计算“等腰三角形”情况下的视角，所以不一定是准确的
+                // ? 感觉直接使用向量夹角的方式计算会准确一些啊（双目的时候），那么为什么不直接使用那个呢？
                 cosParallaxStereo1 = cos(2*atan2(mpCurrentKeyFrame->mb/2,mpCurrentKeyFrame->mvDepth[idx1]));
             else if(bStereo2)//传感器是双目相机,并且邻接的关键帧的这个点有对应的深度
                 cosParallaxStereo2 = cos(2*atan2(pKF2->mb/2,pKF2->mvDepth[idx2]));
@@ -665,7 +667,7 @@ void LocalMapping::SearchInNeighbors()
     // 使用默认参数, 最优和次优比例0.6,匹配时检查特征点的旋转
     ORBmatcher matcher;
 
-    // STEP2：将当前帧的MapPoints分别与一级二级相邻帧(的MapPoints)进行融合 -- 正向
+    // STEP 2：将当前帧的MapPoints分别与一级二级相邻帧(的MapPoints)进行融合 -- 正向
     vector<MapPoint*> vpMapPointMatches = mpCurrentKeyFrame->GetMapPointMatches();
     for(vector<KeyFrame*>::iterator vit=vpTargetKFs.begin(), vend=vpTargetKFs.end(); vit!=vend; vit++)
     {
@@ -683,7 +685,7 @@ void LocalMapping::SearchInNeighbors()
     vector<MapPoint*> vpFuseCandidates;
     vpFuseCandidates.reserve(vpTargetKFs.size()*vpMapPointMatches.size());
 
-    // STEP3：将一级二级相邻帧的MapPoints分别与当前帧（的MapPoints）进行融合 -- 反向
+    // STEP 3：将一级二级相邻帧的MapPoints分别与当前帧（的MapPoints）进行融合 -- 反向
     // 遍历每一个一级邻接和二级邻接关键帧
     for(vector<KeyFrame*>::iterator vitKF=vpTargetKFs.begin(), vendKF=vpTargetKFs.end(); vitKF!=vendKF; vitKF++)
     {

@@ -532,6 +532,7 @@ float MapPoint::GetMaxDistanceInvariance()
     return 1.2f*mfMaxDistance;
 }
 
+// 下图中横线的大小表示不同图层图像上的一个像素表示的真实物理空间中的大小
 //              ____
 // Nearer      /____\     level:n-1 --> dmin
 //            /______\                       d/dmin = 1.2^(n-1-m)

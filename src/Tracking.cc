@@ -114,7 +114,7 @@ Tracking::Tracking(
     // [k1 k2 p1 p2 k3]
     cv::Mat DistCoef(4,1,CV_32F);
     DistCoef.at<float>(0) = fSettings["Camera.k1"];
-    DistCoef.at<float>(1) = fSettings["Camera.k2"]t
+    DistCoef.at<float>(1) = fSettings["Camera.k2"];
     DistCoef.at<float>(2) = fSettings["Camera.p1"];
     DistCoef.at<float>(3) = fSettings["Camera.p2"];
     const float k3 = fSettings["Camera.k3"];
@@ -859,6 +859,7 @@ void Tracking::StereoInitialization()
         mvpLocalKeyFrames.push_back(pKFini);
         //? 这个局部地图点竟然..不在mpLocalMapper中管理?
         // 我现在的想法是，这个点只是暂时被保存在了 Tracking 线程之中， 所以称之为 local 
+        // 初始化之后，通过双目图像生成的地图点，都应该被认为是局部地图点
         mvpLocalMapPoints=mpMap->GetAllMapPoints();
         mpReferenceKF = pKFini;
         mCurrentFrame.mpReferenceKF = pKFini;
@@ -1124,6 +1125,7 @@ void Tracking::CreateInitialMapMonocular()
 
     mvpLocalKeyFrames.push_back(pKFcur);
     mvpLocalKeyFrames.push_back(pKFini);
+    // 单目初始化之后，得到的初始地图中的所有点都是局部地图点
     mvpLocalMapPoints=mpMap->GetAllMapPoints();
     mpReferenceKF = pKFcur;
     //也只能这样子设置了,毕竟是最近的关键帧
@@ -1444,7 +1446,7 @@ bool Tracking::TrackLocalMap()
     // We retrieve the local map and try to find matches to points in the local map.
 
     // Update Local KeyFrames and Local Points
-    // step 1：更新局部关键帧mvpLocalKeyFrames和局部地图点mvpLocalMapPoints
+    // step 1：更新局部关键帧mvpLocalKeyFrames和局部地图点mvpLocalMapPoints -- NO, 局部关键帧在这里面根本没有更新，只是利用而已
     UpdateLocalMap();
 
     // step 2：在局部地图中查找与当前帧匹配的MapPoints, 其实也就是对局部地图点进行跟踪
@@ -1501,7 +1503,7 @@ bool Tracking::TrackLocalMap()
 }
 
 /*
- * @brief 断当前帧是否为关键帧
+ * @brief 判断当前帧是否为关键帧
  * @return true if needed
  */
 bool Tracking::NeedNewKeyFrame()
@@ -1541,9 +1543,7 @@ bool Tracking::NeedNewKeyFrame()
 
     // Local Mapping accept keyframes?
     // step 4：查询局部地图管理器是否繁忙,也就是当前能否接受新的关键帧
-    bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();
-
-    // Stereo & RGB-D: Ratio of close "matches to map"/"total matches"
+    bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();pan
     // "total matches = matches to map + visual odometry matches"
     // Visual odometry matches will become MapPoints if we insert a keyframe.
     // This ratio measures how many MapPoints we could create if we insert a keyframe.
@@ -1848,8 +1848,6 @@ void Tracking::UpdateLocalMap()
     UpdateLocalPoints();
 }
 
-
-
 /*
  * @brief 更新局部关键点，called by UpdateLocalMap()
  * 
@@ -2018,6 +2016,9 @@ void Tracking::UpdateLocalKeyFrames()
 
     // V-D Kref： shares the most map points with current frame
     // step 3：更新当前帧的参考关键帧，与自己共视程度最高的关键帧作为参考关键帧
+    // 我觉得设立参考关键帧的一个目的就是，后面的各种优化过程中只会优化关键帧的位姿，那普通帧的位姿就放弃？nonono，但是更新吧我们的
+    // 计算量又承担不过来，so就设立一个参考关键帧，我管你参考关键帧有没有进行优化，只要我（普通帧）保证能够和你参考关键帧的相对位姿
+    // 不变就阔以了
     if(pKFmax)
     {
         mpReferenceKF = pKFmax;

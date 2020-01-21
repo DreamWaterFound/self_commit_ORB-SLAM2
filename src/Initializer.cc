@@ -729,6 +729,10 @@ float Initializer::CheckHomography(
          * \n \f$ {\Delta_{1 \leftarrow 2}} ^2=(u_1-u'_1)^2+(v1-v'_1)^2 \f$
          */
 
+        // ! 但是我现在觉得自由度不能够简单地看这里的平方项的个数来定义
+        // ! 如果这样的话，F矩阵的平方项怎么算？每个组成部分中都有相应的平方项
+        // ! 这一点目前解释不通
+
         const float squareDist1 = (u1-u2in1)*(u1-u2in1)+(v1-v2in1)*(v1-v2in1);
 
         /** <li> 根据测量误差计算归一化误差 </li> 
