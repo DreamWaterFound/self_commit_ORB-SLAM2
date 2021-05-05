@@ -1,4 +1,4 @@
-t/**
+/**
  * @file Tracking.cc
  * @author guoqing (1337841346@qq.com)
  * @brief 追踪线程
@@ -1543,7 +1543,7 @@ bool Tracking::NeedNewKeyFrame()
 
     // Local Mapping accept keyframes?
     // step 4：查询局部地图管理器是否繁忙,也就是当前能否接受新的关键帧
-    bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();pan
+    bool bLocalMappingIdle = mpLocalMapper->AcceptKeyFrames();
     // "total matches = matches to map + visual odometry matches"
     // Visual odometry matches will become MapPoints if we insert a keyframe.
     // This ratio measures how many MapPoints we could create if we insert a keyframe.
