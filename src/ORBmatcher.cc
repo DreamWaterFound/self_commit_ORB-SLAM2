@@ -394,6 +394,8 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
     const float &cy = pKF->cy;
 
     // Decompose Scw
+
+    // NOTE by guoqing @ 2021.07.27 为什么不用对R取行列式后开方的方式得到？我觉得下面的计算方式和这个方法是一致的，而且下面的这个方法计算量少一点
     cv::Mat sRcw = Scw.rowRange(0,3).colRange(0,3);
     const float scw = sqrt(sRcw.row(0).dot(sRcw.row(0)));   // 计算得到尺度s
     cv::Mat Rcw = sRcw/scw;                                 // 得保证行列式为1啊

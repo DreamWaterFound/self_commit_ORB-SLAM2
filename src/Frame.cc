@@ -1071,7 +1071,7 @@ void Frame::ComputeStereoMatches()
 	/** <li > 首先遍历右图中所有提取到的特征点，对每个特征点进行如下操作： </li> <ul>*/
     for(int iR=0; iR<Nr; iR++)
     {
-        // !!在这个函数中没有对双目进行校正，双目校正是在外层程序中实现的
+        // !!在这个函数中没有对双目进行校正，双目校正是在外层程序中实现的 --  不是，要求输入的图像就已经进行了双目矫正
 		//获取右图中特征点
         const cv::KeyPoint &kp = mvKeysRight[iR];
         const float &kpY = kp.pt.y;

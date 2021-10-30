@@ -195,8 +195,8 @@ bool LoopClosing::DetectLoop()
     // We must detect a consistent loop in several consecutive keyframes to accept it
     // STEP 4：在候选帧中检测具有连续性的候选帧
     // 1、每个候选帧将与自己相连的关键帧构成一个“子候选组spCandidateGroup”， vpCandidateKFs-->spCandidateGroup
-    // 2、检测“子候选组”中每一个关键帧是否存在于“连续组”，如果存在 nCurrentConsistency++，则将该“子候选组”放入“当前连续组vCurrentConsistentGroups”
-    // 3、如果nCurrentConsistency大于等于3，那么该”子候选组“代表的候选帧过关，进入mvpEnoughConsistentCandidates
+    // 2、检测“子候选组”中每一个关键帧是否存在于“连续组”，如果存在 nCurrentConsistency++，则将该“子候选组”放入“当前连续组 vCurrentConsistentGroups ”
+    // 3、如果 nCurrentConsistency 大于等于3，那么该”子候选组“代表的候选帧过关，进入 mvpEnoughConsistentCandidates
     
     // 相关的概念说明:
     // 组(group): 对于某个关键帧, 其和其具有共视关系的关键帧组成了一个"组";
@@ -206,19 +206,25 @@ bool LoopClosing::DetectLoop()
     // 连续组(Consistent group): mvConsistentGroups存储了上次执行回环检测时, 新的被检测出来的具有连续性的多个组的集合.由于组之间的连续关系是个网状结构,因此可能存在
     //                          一个组因为和不同的连续组链都具有连续关系,而被添加两次的情况(当然连续性度量是不相同的)
     // 连续组链:我guoqing自造的称呼,类似于菊花链A--B--C--D这样形成了一条连续组链.对于这个例子中,由于可能E,F都和D有连续关系,因此连续组链会产生分叉;为了简化计算,连续组中将只会保存
-    //         最后形成连续关系的连续组们(见下面的连续组的更新)
+    //         最先形成连续关系的连续组们(见下面的连续组的更新)的长度，感觉这里有bug，下面判断 if(!vbConsistentGroup[iG]) 的时候，如果已经处理过来，应该还得判断一下当前新的连续组长度是否超过了之前的，应该选择最长的长度保存；不应该只第一次 vCurrentConsistentGroups.push_back(cg); 后就把  vbConsistentGroup[iG]=true 让后面检测到的新的连续组链长度不再添加了
     // 子连续组: 上面的连续组中的一个组
     // 连续组的初始值: 在遍历某个候选帧的过程中,如果该子候选组没有能够和任何一个上次的子连续组产生连续关系,那么就将添加自己组为连续组,并且连续性为0(相当于新开了一个连续链)
     // 连续组的更新: 当前次回环检测过程中,所有被检测到和之前的连续组链有连续的关系的组,都将在对应的连续组链后面+1,这些子候选组(可能有重复,见上)都将会成为新的连续组;
     //              换而言之连续组mvConsistentGroups中只保存连续组链中末尾的组
 
+    // ref： https://images.zsxq.com/FkR9qP0YnpI24_NdUtvLoEifdyjy?imageMogr2/auto-orient/quality/100!/ignore-error/1&e=1638287999&token=kIxbL07-8jAj8w1n4s9zv64FuZZNEATmlU_Vm6zD:FmgJSfFkgUei5Igw4VAACBS-8eo=
+    // ref: https://t.zsxq.com/3fQbA6E
+
     mvpEnoughConsistentCandidates.clear();// 最终筛选后得到的闭环帧
 
     // ConsistentGroup数据类型为pair<set<KeyFrame*>,int>
-    // ConsistentGroup.first对应每个“连续组”中的关键帧，ConsistentGroup.second为每个“连续组”的序号
+    // ConsistentGroup.first对应每个“连续组”中的关键帧，ConsistentGroup.second为每个“连续组”的连续长度。说白了就是有多少个其他的组和当前组相连（具有公共的共视关键帧）
     // 这个下标是每个"子连续组"的下标,bool表示当前的候选组中是否有和该组相同的一个关键帧
     vector<ConsistentGroup> vCurrentConsistentGroups;
-    vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
+    vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);  // NOTE @ 2021.10.30 也标记是否在和上次遗留的“子候选组”判断是否有相连（共视）关系时，已经处理过
+
+    // NOTE @ 2021.10.30 前面讨论共视关系的时候一般都是说关键帧和关键帧之间的共视关系。下面判断的都是以组为单位的，是否具有公共的共视关键帧的、组和组之间的“共视”关系，也就是这里所谓的 consisitent。 顺便吐个槽，我之前的注释都写得是写啥玩意儿。。。。
+
     // 遍历刚才得到的每一个候选关键帧
     for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
     {
@@ -254,14 +260,15 @@ bool LoopClosing::DetectLoop()
                 // 和当前的候选组发生"连续"关系的子连续组的"已连续id"
                 int nPreviousConsistency = mvConsistentGroups[iG].second;
                 int nCurrentConsistency = nPreviousConsistency + 1;
-                // 如果当前遍历到的"子连续组"还没有和"子候选组有相同的关键帧的记录,那么就+
+                // 如果当前遍历到的"子连续组"还没有和"子候选组有相同的关键帧的记录,那么就+;  大白话就是判断之前是否已经添加过了相同的组链
                 if(!vbConsistentGroup[iG])// 这里作者原本意思是不是应该是vbConsistentGroup[i]而不是vbConsistentGroup[iG]呢？（wubo???）
-                                          //! 应该就是iG,vbConsistentGroup声明时候的大小和mvConsistentGroups是相同的,而在遍历mvConsistentGroups中的每个元素的时候使用的下标是iG
+                                          //! 应该就是 iG , vbConsistentGroup 声明时候的大小和 mvConsistentGroups 是相同的,而在遍历 mvConsistentGroups中 的每个元素的时候使用的下标是iG
                                           //! 而i是在遍历vpCandidateKFs也就是经过KeyFrameDatabase得到的一堆初始的闭环候选帧的时候才使用的  --- guoqing
                 {
                     // 将该“子候选组”的该关键帧打上连续编号加入到“当前连续组”
-                    ConsistentGroup cg = make_pair(spCandidateGroup,nCurrentConsistency);
+                    ConsistentGroup cg = make_pair(spCandidateGroup, nCurrentConsistency);
                     vCurrentConsistentGroups.push_back(cg);
+                    // NOTE @ 2021.10.30 这个，ref: https://t.zsxq.com/yRn27uV
                     vbConsistentGroup[iG]=true; //this avoid to include the same group more than once
                 }
                 // 如果已经连续得足够多了,那么当前的这个候选关键帧是足够靠谱的

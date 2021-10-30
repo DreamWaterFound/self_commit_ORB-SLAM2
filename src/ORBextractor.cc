@@ -562,6 +562,12 @@ ORBextractor::ORBextractor(int _nfeatures,		//指定要提取的特征点数目
 	//其实这里的操作就是，将在全局变量区域的、int格式的随机采样点以cv::point格式复制到当前类对象中的成员变量中
 	//NOTE 但是我觉得好蛋疼啊，你直接在全局变量区就使用cv::Point存储不可以吗？然后直接设置一个指针指过去不就可以了吗？而且还是只读的
     //好在是这个只会生成1次
+    // NOTE 2021.04.30 这里的 std::back_inserter 当初理解错了，应该是在 pattern 的尾部插入数据，类似追加，但并不是对之前的数据的覆盖 ref: https://en.cppreference.com/w/cpp/iterator/back_inserter
+    // 不过这样一来，直接使用顺序插入不也可以？ -- 不对，应该是 std::vector<> 没有预分配空间
+    // 这部分代码是参考了OpenCV中的实现，有些变量名都没有换：
+    // https://github.com/opencv/opencv/blob/3.3.1/modules/features2d/src/orb.cpp#L1149
+    // 至于为什么不直接复制到pattern，我的猜测是std::vector初始化之后预分配的区域不够，相比直接调用std::vector<T>::reverse()的方式预分配内存，这里选用了std::back_inserter类型迭代器，可以在尾部插入的同时根据情况分配空间，其实就类似于std::vector<T>::pubsh_back的操作。
+
     std::copy(pattern0, pattern0 + npoints, std::back_inserter(pattern));
 
     //This is for orientation

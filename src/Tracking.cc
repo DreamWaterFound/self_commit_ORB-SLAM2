@@ -2003,7 +2003,7 @@ void Tracking::UpdateLocalKeyFrames()
         KeyFrame* pParent = pKF->GetParent();
         if(pParent)
         {
-            // mnTrackReferenceForFrame防止重复添加局部关键帧
+            // mnTrackReferenceForFrame 防止重复添加局部关键帧
             if(pParent->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
             {
                 mvpLocalKeyFrames.push_back(pParent);
